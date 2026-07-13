@@ -138,16 +138,16 @@
 
   /* meta vs realizado chart */
   .chart-scroll{overflow-x:auto;padding-bottom:6px;}
-  .bs-chart{display:flex;align-items:flex-end;gap:6px;height:196px;min-width:max-content;padding:0 2px;}
-  .bs-col{width:22px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
-  .bs-track{position:relative;width:14px;height:160px;background:var(--bg-elevated);border-radius:4px;overflow:visible;display:flex;align-items:flex-end;}
-  .bs-fill{width:100%;border-radius:4px;transition:height .25s ease;}
+  .bs-chart{display:flex;align-items:flex-end;justify-content:flex-start;gap:18px;height:196px;min-width:max-content;padding:0 2px;}
+  .bs-col{width:34px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
+  .bs-track{position:relative;width:26px;height:160px;background:var(--bg-elevated);border-radius:5px;overflow:visible;display:flex;align-items:flex-end;}
+  .bs-fill{width:100%;border-radius:5px;transition:height .25s ease;}
   .bs-fill.st-success{background:var(--success);box-shadow:0 0 12px var(--success-glow);}
   .bs-fill.st-warning{background:var(--warning);}
   .bs-fill.st-danger{background:var(--danger);}
-  .bs-target{position:absolute;left:-3px;right:-3px;height:2px;background:#fff;opacity:0.55;}
+  .bs-target{position:absolute;left:-4px;right:-4px;height:2px;background:#fff;opacity:0.55;}
   html[data-theme="light"] .bs-target{background:#171a21;}
-  .bs-col-label{font-size:8.5px;color:var(--text-faint);margin-top:6px;writing-mode:vertical-rl;text-orientation:mixed;height:28px;}
+  .bs-col-label{font-size:11px;color:var(--text-faint);margin-top:8px;font-weight:600;}
   .bs-col:hover .bs-track{outline:1px solid var(--accent);}
   .bs-col{position:relative;}
   .bs-tip{position:absolute;bottom:100%;left:50%;transform:translateX(-50%) translateY(-6px);background:#000;color:#fff;font-size:10px;padding:5px 7px;border-radius:6px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .1s;z-index:5;font-family:var(--font-mono);}
@@ -360,7 +360,7 @@
       <div class="panels-row">
         <div class="panel">
           <div class="panel-head">
-            <h3>Meta vs. Realizado — por bissemana</h3>
+            <h3>Meta vs. Realizado — mensal (2026)</h3>
             <span class="panel-meta" id="meta-chart-meta"></span>
           </div>
           <div class="legend-row" style="margin-bottom:10px;">
@@ -370,6 +370,7 @@
             <span><span class="legend-dot" style="background:#fff;opacity:.6"></span>linha = meta</span>
           </div>
           <div class="chart-scroll"><div class="bs-chart" id="bs-chart"></div></div>
+          <div style="font-size:10.5px;color:var(--text-faint);margin-top:10px;">Sempre exibe o ano corrente completo até o mês atual — o filtro de período não altera este gráfico (praça, segmento e agência continuam sendo aplicados).</div>
         </div>
 
         <div class="panel">
@@ -473,6 +474,7 @@ const BISSEMANAS = Array.from({length:N_BISSEMANAS}, (_,i)=>{
   return { n, label:'BS'+String(n).padStart(2,'0'), mes, trimestre };
 });
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const CURRENT_MES = BISSEMANAS.find(b=>b.n===CURRENT_BS).mes; // mês corrente para limitar o gráfico "desde o início do ano"
 
 /* ============================================================
    2b. CONTROLE DE ACESSO
@@ -727,6 +729,29 @@ function filterPipeline(execSlug, f){
   });
 }
 
+// série mensal para o gráfico Meta x Realizado — sempre de Jan até o mês corrente
+// (2026), independente do filtro de período; respeita praça/segmento/agência/executivo.
+function computeMonthlySeries(execSlug, f){
+  const months = [];
+  for(let m=1; m<=CURRENT_MES; m++){
+    const metaMes = metas
+      .filter(r=> (!execSlug || r.exec===execSlug) && r.mes===m)
+      .reduce((s,r)=>s+r.meta_liquido,0);
+    const realMes = faturamento
+      .filter(r=>{
+        if(execSlug && r.exec!==execSlug) return false;
+        if(r.mes!==m) return false;
+        if(f.praca!=='todas' && r.praca!==f.praca) return false;
+        if(f.segmento!=='todos' && r.segmento!==f.segmento) return false;
+        if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
+        return true;
+      })
+      .reduce((s,r)=>s+r.valor_liquido,0);
+    months.push({ mes:m, label:MESES[m-1], meta:metaMes, realizado:realMes });
+  }
+  return months;
+}
+
 /* ============================================================
    7. CÁLCULO DE ESTATÍSTICAS
    ============================================================ */
@@ -748,15 +773,6 @@ function computeStats(execSlug, f){
   const pipelinePonderado = pipe.reduce((s,r)=>s+r.valor_ponderado,0);
   const pctDescontoMedio = bruto>0 ? desconto/bruto : 0;
 
-  // série por bissemana (para o gráfico meta x realizado)
-  const bsSet = new Set(met.map(m=>m.bs).concat(fat.map(x=>x.bs)));
-  const bsList = Array.from(bsSet).sort((a,b)=>a-b);
-  const serie = bsList.map(n=>{
-    const metaBS = met.filter(m=>m.bs===n).reduce((s,r)=>s+r.meta_liquido,0);
-    const realBS = fat.filter(x=>x.bs===n).reduce((s,r)=>s+r.valor_liquido,0);
-    return {bs:n, label:'BS'+String(n).padStart(2,'0'), meta:metaBS, realizado:realBS};
-  });
-
   // mix por tipo de mídia e categoria
   const porTipo = {OOH:0, DOOH:0};
   const porCategoria = {};
@@ -776,7 +792,7 @@ function computeStats(execSlug, f){
   return {
     fat, met, pipe, bruto, liquido, desconto, bv, comissao, metaLiquido, metaBruto,
     pctMeta, ticketMedio, pipelineTotal, pipelinePonderado, pctDescontoMedio,
-    serie, porTipo, porCategoria, porAgencia, nCampanhas: fat.length,
+    porTipo, porCategoria, porAgencia, nCampanhas: fat.length,
   };
 }
 
@@ -823,18 +839,23 @@ function renderKPI(stats){
 /* ============================================================
    9. RENDER — GRÁFICO META x REALIZADO
    ============================================================ */
-function renderMetaChart(stats){
+function renderMetaChart(serie){
   const chart = document.getElementById('bs-chart');
-  document.getElementById('meta-chart-meta').textContent = stats.serie.length+' bissemana(s) no recorte';
-  if(stats.serie.length===0){ chart.innerHTML = '<div class="empty-hint">Sem dados para este recorte.</div>'; return; }
-  const maxVal = Math.max(1, ...stats.serie.map(s=>Math.max(s.meta,s.realizado)));
-  chart.innerHTML = stats.serie.map(s=>{
+  const metaEl = document.getElementById('meta-chart-meta');
+  if(serie.length===0){
+    metaEl.textContent = '';
+    chart.innerHTML = '<div class="empty-hint">Sem dados para este recorte.</div>';
+    return;
+  }
+  metaEl.textContent = 'Jan – '+serie[serie.length-1].label+'/2026';
+  const maxVal = Math.max(1, ...serie.map(s=>Math.max(s.meta,s.realizado)));
+  chart.innerHTML = serie.map(s=>{
     const pct = s.meta>0 ? s.realizado/s.meta : 0;
     const st = statusColor(pct);
     const hReal = Math.max(2, (s.realizado/maxVal)*160);
     const hMeta = Math.max(2, (s.meta/maxVal)*160);
     return `<div class="bs-col">
-      <div class="bs-tip">${s.label}<br>Real: ${fmtBRLShort(s.realizado)}<br>Meta: ${fmtBRLShort(s.meta)}</div>
+      <div class="bs-tip">${s.label}/2026<br>Real: ${fmtBRLShort(s.realizado)}<br>Meta: ${fmtBRLShort(s.meta)}</div>
       <div class="bs-track">
         <div class="bs-target" style="bottom:${hMeta}px;"></div>
         <div class="bs-fill st-${st}" style="height:${hReal}px;"></div>
@@ -998,22 +1019,19 @@ function render(){
 
   const overviewExtras = document.getElementById('overview-extras');
   const badge = document.getElementById('exec-badge');
+  badge.style.display = 'none';
 
   if(route.type==='overview'){
     renderOverviewExtras(f);
     overviewExtras.style.display = 'block';
-    badge.style.display = 'none';
   } else {
     overviewExtras.style.display = 'none';
-    const allStats = EXECUTIVOS.map(e=>({slug:e.slug, liquido:computeStats(e.slug,f).liquido})).sort((a,b)=>b.liquido-a.liquido);
-    const pos = allStats.findIndex(x=>x.slug===execSlug)+1;
-    badge.style.display = 'inline-flex';
-    badge.textContent = pos+'º de '+EXECUTIVOS.length+' no ranking';
   }
 
   const stats = computeStats(execSlug, f);
+  const monthlySeries = computeMonthlySeries(execSlug, f);
   renderKPI(stats);
-  renderMetaChart(stats);
+  renderMetaChart(monthlySeries);
   renderMix(stats);
   renderPipeline(stats);
   renderBV(stats);
