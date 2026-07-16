@@ -137,7 +137,7 @@
   .legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px;}
 
   /* meta vs realizado chart */
-  .chart-scroll{overflow-x:auto;padding-bottom:6px;}
+  .chart-scroll{overflow-x:auto;overflow-y:hidden;padding:56px 2px 6px;}
   .bs-chart{display:flex;align-items:flex-end;justify-content:flex-start;gap:18px;height:196px;min-width:max-content;padding:0 2px;}
   .bs-col{width:34px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
   .bs-track{position:relative;width:26px;height:160px;background:var(--bg-elevated);border-radius:5px;overflow:visible;display:flex;align-items:flex-end;}
@@ -308,7 +308,7 @@
     <div id="exec-nav"></div>
 
     <div class="sidebar-foot">
-      Fonte: planilha BD_FATURAMENTO_COMERCIAL (Google Sheets) — abas Dados e Meta, atualização em tempo real.
+      Fonte: planilha BD_FATURAMENTO_COMERCIAL (Google Sheets) — abas Dados e Meta, sincronização automática a cada 30s.
     </div>
   </aside>
 
@@ -626,27 +626,42 @@ function parseMetaTable(table){
   });
 }
 
-async function loadRealData(){
-  DATA_STATE.loading = true; DATA_STATE.error = null;
-  updateLoadingUI();
+let pollTimer = null;
+let syncInFlight = false;
+async function loadRealData(opts){
+  if(syncInFlight) return;
+  syncInFlight = true;
+  const silent = !!(opts && opts.silent);
+  if(!silent){ DATA_STATE.loading = true; DATA_STATE.error = null; updateLoadingUI(); }
   try{
     const [tableDados, tableMeta] = await Promise.all([
       fetchGvizTable(GID_DADOS),
       fetchGvizTable(GID_META),
     ]);
+    // zera antes de reprocessar, senão uma sincronização em segundo plano
+    // simplesmente somaria os registros novos aos antigos (duplicando tudo).
+    faturamento.length = 0; metas.length = 0; pipeline.length = 0;
+    PRACAS_ENCONTRADAS = {}; AGENCIAS_ENCONTRADAS = new Set(); FORMATOS_ENCONTRADOS = new Set();
     parseDadosTable(tableDados);
     parseMetaTable(tableMeta);
     DATA_STATE.loaded = true;
+    DATA_STATE.error = null;
     const utEl = document.getElementById('update-time');
-    if(utEl) utEl.textContent = 'Atualizado em ' + new Date().toLocaleString('pt-BR');
+    if(utEl) utEl.textContent = 'Sincronizado em ' + new Date().toLocaleString('pt-BR');
   } catch(err){
     console.error('Falha ao carregar a planilha:', err);
     DATA_STATE.error = err;
   } finally {
+    syncInFlight = false;
     DATA_STATE.loading = false;
     updateLoadingUI();
     populateFilterOptions();
     if(currentUser) render();
+    if(!pollTimer){
+      // sincronização silenciosa em segundo plano: qualquer edição na planilha
+      // aparece no dashboard sem precisar recarregar a página nem clicar em nada.
+      pollTimer = setInterval(()=>loadRealData({silent:true}), 30000);
+    }
   }
 }
 
