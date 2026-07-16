@@ -273,6 +273,28 @@
     .kpi-grid{grid-template-columns:1fr;}
     .topbar-left h1{max-width:110px;}
   }
+
+  /* impressão / exportação para PDF */
+  @media print{
+    html[data-theme]{
+      --bg:#ffffff; --bg-elevated:#f4f5f7; --sidebar:#ffffff; --card:#ffffff; --card-hover:#ffffff;
+      --border:#d7dbe1; --text:#14161b; --text-muted:#4a505c; --text-faint:#7a8190;
+      --accent:#ed1847; --shadow-card:none;
+    }
+    body{background:#fff;}
+    .sidebar, .sidebar-backdrop, .mobile-topbar, .filterbar, .filter-reset,
+    .icon-btn, .user-chip button, #pipeline-sort, .login-overlay, .chart-tooltip,
+    .demo-note, .empty-hint{ display:none !important; }
+    .shell{display:block;}
+    .content{padding:0;}
+    .topbar{position:static;border-bottom:2px solid #14161b;padding:0 0 10px;}
+    .topbar-left h1{color:#14161b;max-width:none;white-space:normal;}
+    .panel, .kpi-card{border:1px solid #d7dbe1;box-shadow:none;break-inside:avoid;}
+    .panels-row{grid-template-columns:1fr 1fr;}
+    .kpi-card.hit .kpi-value{text-shadow:none;}
+    .bs-fill.st-success{box-shadow:none;}
+    a{color:inherit;text-decoration:none;}
+  }
 </style>
 </head>
 <body>
@@ -341,6 +363,12 @@
           <span><b id="user-chip-name"></b> <span class="role-tag" id="user-chip-role"></span></span>
           <button id="btn-logout" type="button">Sair</button>
         </div>
+        <button class="icon-btn" id="btn-export-excel" aria-label="Exportar Excel" title="Exportar para Excel (CSV)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 13l3 5M11.5 13l-3 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-export-pdf" aria-label="Exportar PDF" title="Exportar para PDF">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 17v-5h1.6a1.6 1.6 0 1 1 0 3.2H7.5M13 17v-5h1.8M13 14.5h1.6M17.5 17v-5h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn" id="btn-theme" aria-label="Alternar tema">
           <svg id="theme-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>
@@ -423,6 +451,15 @@
           <div class="panel-head">
             <h3>Pipeline / Forecast</h3>
             <span class="panel-meta" id="pipeline-meta"></span>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+            <select id="pipeline-sort" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
+              <option value="valor_desc">Ordenar: maior valor</option>
+              <option value="valor_asc">Ordenar: menor valor</option>
+              <option value="estagio">Ordenar: estágio</option>
+              <option value="recente">Ordenar: mais recente</option>
+              <option value="cliente">Ordenar: cliente (A-Z)</option>
+            </select>
           </div>
           <div class="table-scroll">
           <table>
@@ -719,7 +756,7 @@ function fmtBRL(v, decimals){
   return (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:decimals||0,maximumFractionDigits:decimals||0});
 }
 function fmtBRLShort(v){
-  if(Math.abs(v)>=1000000) return 'R$ '+(v/1000000).toFixed(1)+'M';
+  if(Math.abs(v)>=1000000) return 'R$ '+(v/1000000).toFixed(3)+'M';
   if(Math.abs(v)>=1000) return 'R$ '+(v/1000).toFixed(0)+'k';
   return fmtBRL(v);
 }
@@ -821,6 +858,7 @@ function populatePeriodoValor(){
 }
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
 [selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
+document.getElementById('pipeline-sort').addEventListener('change', render);
 document.getElementById('btn-reset').addEventListener('click', ()=>{
   selTipo.value='todos'; populatePeriodoValor();
   selPraca.value='todas'; selAgencia.value='todas';
@@ -1122,14 +1160,41 @@ function renderMix(stats){
 /* ============================================================
    11. RENDER — PIPELINE
    ============================================================ */
+function computeFunilCombinado(stats, sortMode){
+  // Aprovadas (faturamento) contam como "Fechado" no funil; Quente e
+  // Negociação continuam como "em aberto".
+  const fechadas = stats.fat.map(r=>({
+    estagio:'Fechado', valor:r.valor_liquido,
+    anunciante: r.cliente || r.nomeOportunidade || '—',
+    praca:r.praca, agencia:r.agencia, ano:r.ano, mes:r.mes,
+  }));
+  const combined = stats.pipe.concat(fechadas);
+  const stageOrder = { 'Proposta Quente':0, 'Negociação':1, 'Fechado':2 };
+  const mode = sortMode || 'valor_desc';
+  return combined.slice().sort((a,b)=>{
+    if(mode==='valor_asc') return a.valor-b.valor;
+    if(mode==='estagio') return (stageOrder[a.estagio]??9)-(stageOrder[b.estagio]??9);
+    if(mode==='recente') return (b.ano*12+b.mes)-(a.ano*12+a.mes);
+    if(mode==='cliente') return String(a.anunciante).localeCompare(String(b.anunciante));
+    return b.valor-a.valor; // valor_desc (padrão)
+  });
+}
+
 function renderPipeline(stats){
   const body = document.getElementById('pipeline-body');
   const empty = document.getElementById('pipeline-empty');
-  document.getElementById('pipeline-meta').textContent = stats.pipe.length+' proposta(s) no funil';
-  if(stats.pipe.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
+  const sortSel = document.getElementById('pipeline-sort');
+  const rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
+  const nFechadas = rows.filter(p=>p.estagio==='Fechado').length;
+  const nAbertas = rows.length - nFechadas;
+
+  document.getElementById('pipeline-meta').textContent =
+    rows.length+' proposta(s) no funil · '+nFechadas+' fechada(s) · '+nAbertas+' em aberto';
+
+  if(rows.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  const stageClassMap = { 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao' };
-  const rows = stats.pipe.slice().sort((a,b)=>b.valor-a.valor);
+
+  const stageClassMap = { 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao', 'Fechado':'stage-fechado' };
   body.innerHTML = rows.map(p=>{
     const stageClass = stageClassMap[p.estagio] || '';
     return `<tr>
@@ -1303,6 +1368,66 @@ document.getElementById('btn-logout').addEventListener('click', function(){
   document.getElementById('sidebar-backdrop').classList.remove('open');
   history.replaceState(null, '', location.pathname + location.search);
 });
+
+/* ============================================================
+   EXPORTAÇÃO — Excel (CSV) e PDF (impressão do navegador)
+   ============================================================ */
+function csvNum(v){ return (v||0).toFixed(2).replace('.', ','); }
+function csvCell(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }
+function csvLine(arr){ return arr.map(csvCell).join(';'); }
+
+function exportExcel(){
+  if(!currentUser) return;
+  const route = getRoute();
+  const execSlug = route.type==='exec' ? route.exec.slug : null;
+  const nome = route.type==='exec' ? route.exec.nome : 'Empresa (todos)';
+  const f = getFilters();
+  const stats = computeStats(execSlug, f);
+  const sortSel = document.getElementById('pipeline-sort');
+  const funil = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
+
+  const lines = [];
+  lines.push(csvLine(['Dashboard Faturamento Comercial — Mude']));
+  lines.push(csvLine(['Página', nome]));
+  lines.push(csvLine(['Gerado em', new Date().toLocaleString('pt-BR')]));
+  lines.push('');
+  lines.push(csvLine(['RESUMO']));
+  lines.push(csvLine(['Valor faturado (R$)', csvNum(stats.liquido)]));
+  lines.push(csvLine(['Meta (R$)', csvNum(stats.metaLiquido)]));
+  lines.push(csvLine(['% Meta', (stats.pctMeta*100).toFixed(1)+'%']));
+  lines.push(csvLine(['Ticket médio (R$)', csvNum(stats.ticketMedio)]));
+  lines.push(csvLine(['Pipeline em aberto (R$)', csvNum(stats.pipelineAberto)]));
+  lines.push(csvLine(['Proposta quente (R$)', csvNum(stats.pipelineQuente)]));
+  lines.push(csvLine(['Propostas fechadas (qtd)', stats.nPropostasFechadas]));
+  lines.push(csvLine(['Propostas em aberto (qtd)', stats.nPropostasAbertas]));
+  lines.push('');
+  lines.push(csvLine(['PIPELINE / FORECAST']));
+  lines.push(csvLine(['Anunciante','Praça','Canal','Estágio','Valor (R$)']));
+  funil.forEach(p=>{
+    lines.push(csvLine([p.anunciante, pracaName(p.praca), p.agencia==='Direto'?'Direto':'Agência', p.estagio, csvNum(p.valor)]));
+  });
+  lines.push('');
+  lines.push(csvLine(['FATURAMENTO POR AGÊNCIA']));
+  lines.push(csvLine(['Agência','Faturamento líquido (R$)']));
+  Object.entries(stats.porAgencia).sort((a,b)=>b[1].liquido-a[1].liquido).forEach(([nomeAg,v])=>{
+    lines.push(csvLine([nomeAg, csvNum(v.liquido)]));
+  });
+
+  const csv = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const slugNome = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_');
+  a.href = url;
+  a.download = 'faturamento_'+slugNome+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btn-export-excel').addEventListener('click', exportExcel);
+document.getElementById('btn-export-pdf').addEventListener('click', ()=>{ window.print(); });
 
 /* ============================================================
    16. TEMA + MENU MOBILE + INIT
