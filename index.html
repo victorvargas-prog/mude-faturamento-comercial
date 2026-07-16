@@ -111,8 +111,8 @@
   .filter-note.show{display:block;}
 
   /* ---------- kpi cards ---------- */
-  .kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:22px;}
-  @media(max-width:1400px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
+  .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:22px;}
+  @media(max-width:1300px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
   @media(max-width:720px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
   .kpi-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:15px 16px;box-shadow:var(--shadow-card);position:relative;overflow:hidden;}
   .kpi-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-faint);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
@@ -308,7 +308,7 @@
     <div id="exec-nav"></div>
 
     <div class="sidebar-foot">
-      Dados de demonstração.<br>Substitua pela fonte real (Google Sheets / Apps Script) antes de publicar.
+      Fonte: planilha BD_FATURAMENTO_COMERCIAL (Google Sheets) — abas Dados e Meta, atualização em tempo real.
     </div>
   </aside>
 
@@ -325,7 +325,7 @@
         </div>
       </div>
       <div class="topbar-right">
-        <span class="demo-note">Fonte: dados de demonstração</span>
+        <span class="demo-note">Fonte: Google Sheets (live)</span>
         <div class="user-chip" id="user-chip">
           <span><b id="user-chip-name"></b> <span class="role-tag" id="user-chip-role"></span></span>
           <button id="btn-logout" type="button">Sair</button>
@@ -338,15 +338,16 @@
 
     <div class="content">
 
+      <div id="data-status-banner" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:10px;font-size:13px;"></div>
+
       <!-- filters -->
       <div class="filterbar">
         <div class="filter-group">
           <label>Tipo de período</label>
           <select id="f-periodo-tipo">
-            <option value="todos">Ano todo (2026)</option>
+            <option value="todos">Todo o período</option>
             <option value="trimestre">Trimestre</option>
             <option value="mes">Mês</option>
-            <option value="bissemana">Bissemana</option>
           </select>
         </div>
         <div class="filter-group">
@@ -360,15 +361,11 @@
           <select id="f-praca"><option value="todas">Todas as praças</option></select>
         </div>
         <div class="filter-group">
-          <label>Segmento do anunciante</label>
-          <select id="f-segmento"><option value="todos">Todos os segmentos</option></select>
-        </div>
-        <div class="filter-group">
           <label>Agência / Direto</label>
           <select id="f-agencia"><option value="todas">Todas</option></select>
         </div>
         <button class="filter-reset" id="btn-reset">Limpar filtros</button>
-        <div class="filter-note" id="filter-note">Meta exibida refere-se ao total do período selecionado — filtros de praça, segmento e agência afinam apenas o realizado.</div>
+        <div class="filter-note" id="filter-note">Meta exibida refere-se ao total do período selecionado — filtros de praça e agência afinam apenas o realizado.</div>
       </div>
 
       <!-- overview-only extras -->
@@ -380,7 +377,7 @@
       <div class="panels-row">
         <div class="panel">
           <div class="panel-head">
-            <h3>Meta vs. Realizado — mensal (2026)</h3>
+            <h3>Meta vs. Realizado — mensal</h3>
             <span class="panel-meta" id="meta-chart-meta"></span>
           </div>
           <div class="legend-row" style="margin-bottom:10px;">
@@ -390,13 +387,12 @@
             <span><span class="legend-dot" style="background:#fff;opacity:.6"></span>linha = meta</span>
           </div>
           <div class="chart-scroll"><div class="bs-chart" id="bs-chart"></div></div>
-          <div style="font-size:10.5px;color:var(--text-faint);margin-top:10px;">Sempre exibe o ano corrente completo até o mês atual — o filtro de período não altera este gráfico (praça, segmento e agência continuam sendo aplicados).</div>
+          <div style="font-size:10.5px;color:var(--text-faint);margin-top:10px;">Sempre exibe o ano corrente completo até o mês atual — o filtro de período não altera este gráfico (praça e agência continuam sendo aplicados).</div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Mix de Ativos — OOH vs. DOOH</h3></div>
+          <div class="panel-head"><h3>Mix de Ativos — por formato</h3></div>
           <div class="mix-wrap" id="mix-wrap"></div>
-          <div class="cat-bars" id="cat-bars"></div>
         </div>
       </div>
 
@@ -419,8 +415,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Descontos</h3></div>
-          <div class="bv-grid" id="bv-grid"></div>
+          <div class="panel-head"><h3>Faturamento por Agência</h3></div>
           <div class="panel-meta" style="margin-bottom:8px;font-size:11px;color:var(--text-faint);">Top agências por faturamento no período</div>
           <div class="table-scroll">
           <table>
@@ -440,65 +435,95 @@
 "use strict";
 
 /* ============================================================
-   1. SEEDED RNG  (dados determinísticos de demonstração)
+   1. FONTE DE DADOS — Google Sheets (leitura pública via gviz)
    ============================================================ */
-function mulberry32(seed){
-  return function(){
-    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+const SPREADSHEET_ID = '1tEHWeCwx6Ajzk507sEAY0MAIIaplFCdGko3-Uygsn0o';
+const GID_DADOS = '723799273';
+const GID_META  = '1694804109';
+function gvizUrl(gid){
+  return 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
 }
-const rnd = mulberry32(20260713);
-function randRange(min,max){ return min + rnd()*(max-min); }
-function randInt(min,max){ return Math.floor(randRange(min,max+1)); }
-function pick(arr){ return arr[randInt(0,arr.length-1)]; }
+async function fetchGvizTable(gid){
+  const res = await fetch(gvizUrl(gid));
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const text = await res.text();
+  const match = text.match(/setResponse\(([\s\S]*)\);?\s*$/);
+  if(!match) throw new Error('Formato inesperado da resposta do Google Sheets');
+  const json = JSON.parse(match[1]);
+  return json.table;
+}
+function cellVal(row, idx){
+  const c = row.c && row.c[idx];
+  return c ? c.v : null;
+}
 
 /* ============================================================
-   2. DIMENSÕES  (star schema — troque pela fonte real depois)
+   2. DIMENSÕES E NORMALIZAÇÃO
+   ------------------------------------------------------------
+   Mapeia os valores como estão escritos na planilha para os
+   códigos/nomes usados no dashboard.
    ============================================================ */
-const PRACAS = [
-  {codigo:'RIO', nome:'Rio de Janeiro'},
-  {codigo:'SPO', nome:'São Paulo'},
-  {codigo:'BSB', nome:'Brasília'},
-  {codigo:'FOR', nome:'Fortaleza'},
-  {codigo:'GYN', nome:'Goiânia'},
-  {codigo:'FLN', nome:'Florianópolis'},
-  {codigo:'JPA', nome:'João Pessoa'},
-  {codigo:'REC', nome:'Recife'},
-  {codigo:'GRJ', nome:'Grande Rio'},
-];
-const SEGMENTOS = ['Varejo','Automotivo','Finanças','Bebidas','Telecom','Farma','Educação','Serviços'];
-const AGENCIAS = ['Direto','Agência Vetor','Bloco Mídia','Grupo Norte OOH','Central Ads','Rota Comunicação','Amplo Mídia','Base Exterior'];
-const CATEGORIAS = [
-  {nome:'Painel Estático', tipo:'OOH'},
-  {nome:'Abrigo de Ônibus', tipo:'OOH'},
-  {nome:'Relógio', tipo:'OOH'},
-  {nome:'Empena', tipo:'OOH'},
-  {nome:'Banca', tipo:'OOH'},
-  {nome:'Painel Digital/LED', tipo:'DOOH'},
-  {nome:'Totem Digital', tipo:'DOOH'},
-];
-const EXECUTIVOS = [
-  {nome:'Débora', slug:'debora', perfil:1.15, escala:1.05},
-  {nome:'Duane', slug:'duane', perfil:0.95, escala:0.90},
-  {nome:'Carol Bianchi', slug:'carol-bianchi', perfil:1.10, escala:1.15},
-  {nome:'Fábio', slug:'fabio', perfil:0.80, escala:0.95},
-  {nome:'Edison', slug:'edison', perfil:0.98, escala:1.00},
-  {nome:'Haydée', slug:'haydee', perfil:1.20, escala:1.10},
-  {nome:'Babila', slug:'babila', perfil:0.90, escala:0.85},
-];
-const N_BISSEMANAS = 26;
-const CURRENT_BS = 14; // ~13 jul 2026
-const BISSEMANAS = Array.from({length:N_BISSEMANAS}, (_,i)=>{
-  const n = i+1;
-  const mes = Math.min(12, Math.max(1, Math.ceil(n/(N_BISSEMANAS/12))));
-  const trimestre = Math.ceil(mes/3);
-  return { n, label:'BS'+String(n).padStart(2,'0'), mes, trimestre };
-});
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-const CURRENT_MES = BISSEMANAS.find(b=>b.n===CURRENT_BS).mes; // mês corrente para limitar o gráfico "desde o início do ano"
+const MESES_MAP = {
+  'JANEIRO':1,'FEVEREIRO':2,'MARÇO':3,'MARCO':3,'ABRIL':4,'MAIO':5,'JUNHO':6,
+  'JULHO':7,'AGOSTO':8,'SETEMBRO':9,'OUTUBRO':10,'NOVEMBRO':11,'DEZEMBRO':12,
+};
+function normMes(v){ return v ? (MESES_MAP[String(v).trim().toUpperCase()] || null) : null; }
+
+const EXECUTIVOS = [
+  {nome:'Débora', slug:'debora'},
+  {nome:'Duane', slug:'duane'},
+  {nome:'Carol Bianchi', slug:'carol-bianchi'},
+  {nome:'Fábio', slug:'fabio'},
+  {nome:'Edison', slug:'edison'},
+  {nome:'Haydée', slug:'haydee'},
+  {nome:'Babila', slug:'babila'},
+];
+const EXEC_NORM = {
+  'DEBORA':'debora', 'DÉBORA':'debora',
+  'DUANE':'duane',
+  'CAROL':'carol-bianchi', 'CAROL BIANCHI':'carol-bianchi',
+  'FABIO':'fabio', 'FÁBIO':'fabio',
+  'EDISON':'edison',
+  'HAYDEE':'haydee', 'HAYDÉE':'haydee',
+  'BABILA':'babila',
+};
+function normExec(v){ return v ? (EXEC_NORM[String(v).trim().toUpperCase()] || null) : null; }
+
+// Rio de Janeiro absorve também "Grande Rio de Janeiro" / GRJ. Guarujá é praça própria.
+const PRACA_NORM = {
+  'RIO DE JANEIRO':{codigo:'RIO', nome:'Rio de Janeiro'},
+  'GRANDE RIO':{codigo:'RIO', nome:'Rio de Janeiro'},
+  'GRANDE RIO DE JANEIRO':{codigo:'RIO', nome:'Rio de Janeiro'},
+  'GRJ':{codigo:'RIO', nome:'Rio de Janeiro'},
+  'SÃO PAULO':{codigo:'SPO', nome:'São Paulo'},
+  'SAO PAULO':{codigo:'SPO', nome:'São Paulo'},
+  'GUARUJÁ':{codigo:'GUA', nome:'Guarujá'},
+  'GUARUJA':{codigo:'GUA', nome:'Guarujá'},
+  'BRASILIA':{codigo:'BSB', nome:'Brasília'},
+  'BRASÍLIA':{codigo:'BSB', nome:'Brasília'},
+  'FORTALEZA':{codigo:'FOR', nome:'Fortaleza'},
+  'GOIANIA':{codigo:'GYN', nome:'Goiânia'},
+  'GOIÂNIA':{codigo:'GYN', nome:'Goiânia'},
+  'FLORIANOPOLIS':{codigo:'FLN', nome:'Florianópolis'},
+  'FLORIANÓPOLIS':{codigo:'FLN', nome:'Florianópolis'},
+  'JOAO PESSOA':{codigo:'JPA', nome:'João Pessoa'},
+  'JOÃO PESSOA':{codigo:'JPA', nome:'João Pessoa'},
+  'RECIFE':{codigo:'REC', nome:'Recife'},
+};
+function normPraca(v){
+  if(!v) return {codigo:'—', nome:'Não informado'};
+  const key = String(v).trim().toUpperCase();
+  return PRACA_NORM[key] || {codigo:key, nome:String(v).trim()};
+}
+function normAgencia(v){
+  const s = v ? String(v).trim() : '';
+  return s.length ? s : 'Direto';
+}
+
+const now_ = new Date();
+const REAL_ANO = now_.getFullYear();
+const REAL_MES = now_.getMonth()+1;
 
 /* ============================================================
    2b. CONTROLE DE ACESSO
@@ -526,67 +551,127 @@ const USERS = [
 let currentUser = null;
 
 /* ============================================================
-   3. GERAÇÃO DE FATOS (faturamento / metas / pipeline)
+   3. CARREGAMENTO E TRANSFORMAÇÃO DOS DADOS REAIS
    ============================================================ */
 const faturamento = [];
 const metas = [];
 const pipeline = [];
 let idCounter = 1;
+let PRACAS_ENCONTRADAS = {};   // codigo -> nome
+let AGENCIAS_ENCONTRADAS = new Set();
+let FORMATOS_ENCONTRADOS = new Set();
+let ANO_DOMINANTE = REAL_ANO;
 
-EXECUTIVOS.forEach(exec=>{
-  BISSEMANAS.forEach(bs=>{
-    const growth = 1 + (bs.n/N_BISSEMANAS)*0.18;
-    const baseMetaLiquido = randRange(95000,135000) * exec.escala * growth;
-    const metaBruto = baseMetaLiquido / 0.85;
-    metas.push({ exec:exec.slug, bs:bs.n, mes:bs.mes, trimestre:bs.trimestre, meta_bruto:metaBruto, meta_liquido:baseMetaLiquido });
+const DATA_STATE = { loading:true, error:null, loaded:false };
 
-    // fator de atingimento realista, oscilando em torno do perfil do executivo
-    const atingimento = Math.max(0.35, exec.perfil * randRange(0.72,1.28));
-    let liquidoRestante = baseMetaLiquido * atingimento;
-    const nLinhas = randInt(1,4);
-    for(let i=0;i<nLinhas;i++){
-      const isLast = i===nLinhas-1;
-      const parcela = isLast ? liquidoRestante : liquidoRestante * randRange(0.2,0.55);
-      liquidoRestante -= parcela;
-      if(parcela <= 0) continue;
-      const categoria = pick(CATEGORIAS);
-      const descontoPct = randRange(0.05,0.28);
-      const valor_liquido = parcela;
-      const valor_bruto = valor_liquido / (1-descontoPct);
-      const valor_desconto = valor_bruto - valor_liquido;
-      const agencia = pick(AGENCIAS);
+function parseDadosTable(table){
+  const anoContagem = {};
+  (table.rows||[]).forEach(row=>{
+    if(!row || !row.c) return;
+    const ano = cellVal(row,0);
+    const mes = normMes(cellVal(row,1));
+    const exec = normExec(cellVal(row,2));
+    const cliente = (cellVal(row,3)||'').toString().trim();
+    const agencia = normAgencia(cellVal(row,4));
+    const broker = (cellVal(row,5)||'').toString().trim();
+    const valor = Number(cellVal(row,6))||0;
+    const fase = (cellVal(row,7)||'').toString().trim().toUpperCase();
+    const pracaInfo = normPraca(cellVal(row,8));
+    const formato = (cellVal(row,9)||'').toString().trim();
+    const nomeOportunidade = (cellVal(row,10)||'').toString().trim();
+    const observacoes = (cellVal(row,11)||'').toString().trim();
+
+    if(!ano || !mes || !exec) return;               // linha incompleta/cabeçalho
+    if(valor<=0 && !cliente) return;                 // placeholder de mês futuro sem info
+    if(!fase) return;
+
+    if(ano) anoContagem[ano] = (anoContagem[ano]||0)+1;
+    const trimestre = Math.ceil(mes/3);
+    if(pracaInfo.codigo!=='—') PRACAS_ENCONTRADAS[pracaInfo.codigo]=pracaInfo.nome;
+    AGENCIAS_ENCONTRADAS.add(agencia);
+    if(formato) FORMATOS_ENCONTRADOS.add(formato);
+
+    if(fase==='APROVADO'){
       faturamento.push({
-        id: idCounter++,
-        exec: exec.slug,
-        bs: bs.n, mes: bs.mes, trimestre: bs.trimestre,
-        praca: pick(PRACAS).codigo,
-        segmento: pick(SEGMENTOS),
-        agencia,
-        tipo_midia: categoria.tipo,
-        categoria: categoria.nome,
-        valor_bruto, valor_liquido, valor_desconto, pct_desconto: descontoPct,
+        id:idCounter++, exec, ano, mes, trimestre,
+        praca:pracaInfo.codigo, agencia, formato, broker,
+        cliente, nomeOportunidade, observacoes,
+        valor_liquido:valor,
+      });
+    } else if(fase==='QUENTE' || fase==='PREVISAO'){
+      pipeline.push({
+        id:idCounter++, exec, ano, mes, trimestre,
+        praca:pracaInfo.codigo, agencia, formato, broker,
+        anunciante: cliente || nomeOportunidade || '—',
+        nomeOportunidade, observacoes,
+        estagio: fase==='QUENTE' ? 'Proposta Quente' : 'Negociação',
+        valor,
       });
     }
+    // outras fases eventuais na planilha são ignoradas silenciosamente
   });
+  const anos = Object.keys(anoContagem);
+  if(anos.length) ANO_DOMINANTE = Number(anos.sort((a,b)=>anoContagem[b]-anoContagem[a])[0]);
+}
 
-  // pipeline de propostas (em aberto e recém-fechadas)
-  const nProp = randInt(4,9);
-  const sufixos = ['Nacional','Norte','Sul','Grupo A','Holdings','Express','Premium','Rede'];
-  const ESTAGIOS = ['Proposta Quente','Negociação','Fechado'];
-  for(let i=0;i<nProp;i++){
-    const estagio = pick(ESTAGIOS);
-    const valor = randRange(20000,150000);
-    pipeline.push({
-      id: idCounter++,
-      exec: exec.slug,
-      anunciante: pick(SEGMENTOS)+' '+pick(sufixos),
-      praca: pick(PRACAS).codigo,
-      agencia: pick(AGENCIAS),
-      estagio,
-      valor,
-    });
+function parseMetaTable(table){
+  (table.rows||[]).forEach(row=>{
+    if(!row || !row.c) return;
+    const ano = cellVal(row,0);
+    const mes = normMes(cellVal(row,1));
+    const exec = normExec(cellVal(row,2));
+    const metaVal = Number(cellVal(row,3))||0;
+    if(!ano || !mes || !exec) return;
+    metas.push({ exec, ano, mes, trimestre:Math.ceil(mes/3), meta_liquido:metaVal });
+  });
+}
+
+async function loadRealData(){
+  DATA_STATE.loading = true; DATA_STATE.error = null;
+  updateLoadingUI();
+  try{
+    const [tableDados, tableMeta] = await Promise.all([
+      fetchGvizTable(GID_DADOS),
+      fetchGvizTable(GID_META),
+    ]);
+    parseDadosTable(tableDados);
+    parseMetaTable(tableMeta);
+    DATA_STATE.loaded = true;
+    const utEl = document.getElementById('update-time');
+    if(utEl) utEl.textContent = 'Atualizado em ' + new Date().toLocaleString('pt-BR');
+  } catch(err){
+    console.error('Falha ao carregar a planilha:', err);
+    DATA_STATE.error = err;
+  } finally {
+    DATA_STATE.loading = false;
+    updateLoadingUI();
+    populateFilterOptions();
+    if(currentUser) render();
   }
-});
+}
+
+function updateLoadingUI(){
+  const el = document.getElementById('data-status-banner');
+  if(!el) return;
+  if(DATA_STATE.loading){
+    el.style.display = 'block';
+    el.style.background = 'var(--bg-elevated)';
+    el.style.border = '1px solid var(--border)';
+    el.style.color = 'var(--text-muted)';
+    el.textContent = 'Carregando dados da planilha (Dados + Meta)...';
+  } else if(DATA_STATE.error){
+    el.style.display = 'block';
+    el.style.background = 'var(--danger-soft)';
+    el.style.border = '1px solid var(--danger)';
+    el.style.color = 'var(--danger)';
+    el.innerHTML = 'Não foi possível carregar a planilha. Verifique se ela continua compartilhada como "qualquer pessoa com o link pode visualizar" e '+
+      '<a href="#" id="btn-retry-load" style="text-decoration:underline;color:inherit;">tente novamente</a>.';
+    const retry = document.getElementById('btn-retry-load');
+    if(retry) retry.addEventListener('click', (e)=>{ e.preventDefault(); loadRealData(); });
+  } else {
+    el.style.display = 'none';
+  }
+}
 
 /* ============================================================
    4. HELPERS DE FORMATAÇÃO
@@ -602,7 +687,7 @@ function fmtBRLShort(v){
 function fmtPct(v, decimals){ return (v*100).toFixed(decimals===undefined?0:decimals)+'%'; }
 function statusColor(pct){ return pct>=1 ? 'success' : (pct>=0.8 ? 'warning' : 'danger'); }
 function execName(slug){ const e=EXECUTIVOS.find(x=>x.slug===slug); return e?e.nome:slug; }
-function pracaName(codigo){ const p=PRACAS.find(x=>x.codigo===codigo); return p?p.nome:codigo; }
+function pracaName(codigo){ return PRACAS_ENCONTRADAS[codigo] || codigo; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 
 /* ============================================================
@@ -662,13 +747,23 @@ function setActiveNav(route){
 const selTipo = document.getElementById('f-periodo-tipo');
 const selValor = document.getElementById('f-periodo-valor');
 const selPraca = document.getElementById('f-praca');
-const selSegmento = document.getElementById('f-segmento');
 const selAgencia = document.getElementById('f-agencia');
 const filterNote = document.getElementById('filter-note');
 
-PRACAS.forEach(p=>{ const o=document.createElement('option'); o.value=p.codigo; o.textContent=p.nome+' ('+p.codigo+')'; selPraca.appendChild(o); });
-SEGMENTOS.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; selSegmento.appendChild(o); });
-AGENCIAS.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; selAgencia.appendChild(o); });
+function populateFilterOptions(){
+  const pracaAtual = selPraca.value;
+  const agenciaAtual = selAgencia.value;
+  selPraca.innerHTML = '<option value="todas">Todas as praças</option>';
+  Object.keys(PRACAS_ENCONTRADAS).sort((a,b)=>PRACAS_ENCONTRADAS[a].localeCompare(PRACAS_ENCONTRADAS[b])).forEach(codigo=>{
+    const o=document.createElement('option'); o.value=codigo; o.textContent=PRACAS_ENCONTRADAS[codigo]+' ('+codigo+')'; selPraca.appendChild(o);
+  });
+  selAgencia.innerHTML = '<option value="todas">Todas</option>';
+  Array.from(AGENCIAS_ENCONTRADAS).sort((a,b)=>a.localeCompare(b)).forEach(a=>{
+    const o=document.createElement('option'); o.value=a; o.textContent=a; selAgencia.appendChild(o);
+  });
+  if(pracaAtual && selPraca.querySelector('option[value="'+pracaAtual+'"]')) selPraca.value = pracaAtual;
+  if(agenciaAtual && selAgencia.querySelector('option[value="'+agenciaAtual+'"]')) selAgencia.value = agenciaAtual;
+}
 
 function populatePeriodoValor(){
   const tipo = selTipo.value;
@@ -680,18 +775,16 @@ function populatePeriodoValor(){
   }
   selValor.disabled = false;
   if(tipo==='trimestre'){
-    for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=q; o.textContent='T'+q+' 2026'; selValor.appendChild(o); }
+    for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=q; o.textContent='T'+q+' '+ANO_DOMINANTE; selValor.appendChild(o); }
   } else if(tipo==='mes'){
-    MESES.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i+1; o.textContent=m+' 2026'; selValor.appendChild(o); });
-  } else if(tipo==='bissemana'){
-    BISSEMANAS.forEach(bs=>{ const o=document.createElement('option'); o.value=bs.n; o.textContent=bs.label; selValor.appendChild(o); });
+    MESES.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i+1; o.textContent=m+' '+ANO_DOMINANTE; selValor.appendChild(o); });
   }
 }
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
-[selValor, selPraca, selSegmento, selAgencia].forEach(el=>el.addEventListener('change', render));
+[selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
 document.getElementById('btn-reset').addEventListener('click', ()=>{
   selTipo.value='todos'; populatePeriodoValor();
-  selPraca.value='todas'; selSegmento.value='todos'; selAgencia.value='todas';
+  selPraca.value='todas'; selAgencia.value='todas';
   render();
 });
 
@@ -700,7 +793,6 @@ function getFilters(){
     tipo: selTipo.value,
     valor: selValor.value ? Number(selValor.value) : null,
     praca: selPraca.value,
-    segmento: selSegmento.value,
     agencia: selAgencia.value,
   };
 }
@@ -708,11 +800,10 @@ function matchesPeriodo(rec, f){
   if(f.tipo==='todos') return true;
   if(f.tipo==='trimestre') return rec.trimestre===f.valor;
   if(f.tipo==='mes') return rec.mes===f.valor;
-  if(f.tipo==='bissemana') return rec.bs===f.valor;
   return true;
 }
 function anyExtraFilterActive(f){
-  return f.praca!=='todas' || f.segmento!=='todos' || f.agencia!=='todas';
+  return f.praca!=='todas' || f.agencia!=='todas';
 }
 
 function filterFaturamento(execSlug, f){
@@ -720,7 +811,6 @@ function filterFaturamento(execSlug, f){
     if(execSlug && r.exec!==execSlug) return false;
     if(!matchesPeriodo(r,f)) return false;
     if(f.praca!=='todas' && r.praca!==f.praca) return false;
-    if(f.segmento!=='todos' && r.segmento!==f.segmento) return false;
     if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
     return true;
   });
@@ -741,11 +831,17 @@ function filterPipeline(execSlug, f){
   });
 }
 
-// série mensal para o gráfico Meta x Realizado — sempre de Jan até o mês corrente
-// (2026), independente do filtro de período; respeita praça/segmento/agência/executivo.
+// série mensal para o gráfico Meta x Realizado — sempre de Jan até o mês corrente,
+// independente do filtro de período; respeita praça/agência/executivo.
+function getCurrentMesLimite(){
+  const maxMesComDados = Math.max(0, ...metas.map(r=>r.mes), ...faturamento.map(r=>r.mes));
+  if(ANO_DOMINANTE===REAL_ANO) return Math.min(REAL_MES, maxMesComDados||REAL_MES);
+  return maxMesComDados || 12;
+}
 function computeMonthlySeries(execSlug, f){
   const months = [];
-  for(let m=1; m<=CURRENT_MES; m++){
+  const limite = getCurrentMesLimite();
+  for(let m=1; m<=limite; m++){
     const metaMes = metas
       .filter(r=> (!execSlug || r.exec===execSlug) && r.mes===m)
       .reduce((s,r)=>s+r.meta_liquido,0);
@@ -754,7 +850,6 @@ function computeMonthlySeries(execSlug, f){
         if(execSlug && r.exec!==execSlug) return false;
         if(r.mes!==m) return false;
         if(f.praca!=='todas' && r.praca!==f.praca) return false;
-        if(f.segmento!=='todos' && r.segmento!==f.segmento) return false;
         if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
         return true;
       })
@@ -772,30 +867,24 @@ function computeStats(execSlug, f){
   const met = filterMetas(execSlug, f);
   const pipe = filterPipeline(execSlug, f);
 
-  const bruto = fat.reduce((s,r)=>s+r.valor_bruto,0);
   const liquido = fat.reduce((s,r)=>s+r.valor_liquido,0);
-  const desconto = fat.reduce((s,r)=>s+r.valor_desconto,0);
   const metaLiquido = met.reduce((s,r)=>s+r.meta_liquido,0);
-  const metaBruto = met.reduce((s,r)=>s+r.meta_bruto,0);
   const pctMeta = metaLiquido>0 ? liquido/metaLiquido : 0;
   const ticketMedio = fat.length>0 ? liquido/fat.length : 0;
-  const pctDescontoMedio = bruto>0 ? desconto/bruto : 0;
 
-  // pipeline: valor em aberto (Proposta Quente + Negociação) e valor só do que está quente
-  const pipeAbertas = pipe.filter(p=>p.estagio==='Proposta Quente' || p.estagio==='Negociação');
-  const pipeFechadas = pipe.filter(p=>p.estagio==='Fechado');
+  // pipeline: todo item em "pipeline" já é, por definição, uma proposta em aberto
+  // (Proposta Quente ou Negociação) — "Fechado"/aprovado já virou faturamento.
   const pipeQuentes = pipe.filter(p=>p.estagio==='Proposta Quente');
-  const pipelineAberto = pipeAbertas.reduce((s,r)=>s+r.valor,0);
+  const pipelineAberto = pipe.reduce((s,r)=>s+r.valor,0);
   const pipelineQuente = pipeQuentes.reduce((s,r)=>s+r.valor,0);
-  const nPropostasFechadas = pipeFechadas.length;
-  const nPropostasAbertas = pipeAbertas.length;
+  const nPropostasFechadas = fat.length;
+  const nPropostasAbertas = pipe.length;
 
-  // mix por tipo de mídia e categoria
-  const porTipo = {OOH:0, DOOH:0};
-  const porCategoria = {};
+  // mix por formato (como consta na planilha)
+  const porFormato = {};
   fat.forEach(r=>{
-    porTipo[r.tipo_midia]+=r.valor_liquido;
-    porCategoria[r.categoria]=(porCategoria[r.categoria]||0)+r.valor_liquido;
+    const key = r.formato || 'Não informado';
+    porFormato[key] = (porFormato[key]||0) + r.valor_liquido;
   });
 
   // por agência
@@ -806,10 +895,10 @@ function computeStats(execSlug, f){
   });
 
   return {
-    fat, met, pipe, bruto, liquido, desconto, metaLiquido, metaBruto,
-    pctMeta, ticketMedio, pctDescontoMedio,
+    fat, met, pipe, liquido, metaLiquido,
+    pctMeta, ticketMedio,
     pipelineAberto, pipelineQuente, nPropostasFechadas, nPropostasAbertas,
-    porTipo, porCategoria, porAgencia, nCampanhas: fat.length,
+    porFormato, porAgencia, nCampanhas: fat.length,
   };
 }
 
@@ -840,11 +929,6 @@ function renderKPI(stats){
       <div class="kpi-sub">proposta quente: <b>${fmtBRLShort(stats.pipelineQuente)}</b></div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Desconto médio</div>
-      <div class="kpi-value">${fmtPct(stats.pctDescontoMedio,1)}</div>
-      <div class="kpi-sub">total concedido: <b>${fmtBRLShort(stats.desconto)}</b></div>
-    </div>
-    <div class="kpi-card">
       <div class="kpi-label">Propostas fechadas</div>
       <div class="kpi-value">${stats.nPropostasFechadas}</div>
       <div class="kpi-sub">em aberto: <b>${stats.nPropostasAbertas}</b></div>
@@ -863,7 +947,7 @@ function renderMetaChart(serie){
     chart.innerHTML = '<div class="empty-hint">Sem dados para este recorte.</div>';
     return;
   }
-  metaEl.textContent = 'Jan – '+serie[serie.length-1].label+'/2026';
+  metaEl.textContent = 'Jan – '+serie[serie.length-1].label+'/'+ANO_DOMINANTE;
   const maxVal = Math.max(1, ...serie.map(s=>Math.max(s.meta,s.realizado)));
   chart.innerHTML = serie.map(s=>{
     const pct = s.meta>0 ? s.realizado/s.meta : 0;
@@ -871,7 +955,7 @@ function renderMetaChart(serie){
     const hReal = Math.max(2, (s.realizado/maxVal)*160);
     const hMeta = Math.max(2, (s.meta/maxVal)*160);
     return `<div class="bs-col">
-      <div class="bs-tip">${s.label}/2026<br>Real: ${fmtBRLShort(s.realizado)}<br>Meta: ${fmtBRLShort(s.meta)}</div>
+      <div class="bs-tip">${s.label}/${ANO_DOMINANTE}<br>Real: ${fmtBRLShort(s.realizado)}<br>Meta: ${fmtBRLShort(s.meta)}</div>
       <div class="bs-track">
         <div class="bs-target" style="bottom:${hMeta}px;"></div>
         <div class="bs-fill st-${st}" style="height:${hReal}px;"></div>
@@ -882,37 +966,38 @@ function renderMetaChart(serie){
 }
 
 /* ============================================================
-   10. RENDER — MIX OOH/DOOH
+   10. RENDER — MIX POR FORMATO (como consta na planilha)
    ============================================================ */
+const FORMATO_COLORS = ['#5c7cfa','#ed1847','#f5a623','#33e08a','#a78bfa','#38bdf8','#fb7185','#94a3b8'];
+function formatoColor(nome, ordenados){
+  const idx = ordenados.indexOf(nome);
+  return FORMATO_COLORS[idx % FORMATO_COLORS.length];
+}
 function renderMix(stats){
   const wrap = document.getElementById('mix-wrap');
-  const total = stats.porTipo.OOH + stats.porTipo.DOOH;
-  const pctOOH = total>0 ? stats.porTipo.OOH/total : 0;
-  const pctDOOH = total>0 ? stats.porTipo.DOOH/total : 0;
-  const deg = pctDOOH*360;
+  const entries = Object.entries(stats.porFormato).sort((a,b)=>b[1]-a[1]);
+  const nomes = entries.map(e=>e[0]);
+  const total = entries.reduce((s,[,v])=>s+v,0);
+  if(entries.length===0 || total<=0){
+    wrap.innerHTML = '<div class="empty-hint">Sem dados para este recorte.</div>';
+    return;
+  }
+  let acc = 0;
+  const stops = entries.map(([nome,val])=>{
+    const start = acc/total*360; acc += val; const end = acc/total*360;
+    return formatoColor(nome,nomes)+' '+start.toFixed(2)+'deg '+end.toFixed(2)+'deg';
+  }).join(', ');
+  const top = entries[0];
   wrap.innerHTML = `
-    <div class="donut" style="background:conic-gradient(var(--dooh) 0deg ${deg}deg, var(--ooh) ${deg}deg 360deg);">
-      <div class="donut-hole"><b>${fmtPct(pctDOOH,0)}</b><span>DOOH</span></div>
+    <div class="donut" style="background:conic-gradient(${stops});">
+      <div class="donut-hole"><b>${fmtPct(top[1]/total,0)}</b><span>${top[0]}</span></div>
     </div>
     <div class="mix-legend">
-      <div class="mix-item"><span class="mix-name"><span class="legend-dot" style="background:var(--ooh)"></span>OOH</span><span class="mix-val">${fmtBRLShort(stats.porTipo.OOH)} · ${fmtPct(pctOOH,0)}</span></div>
-      <div class="mix-item"><span class="mix-name"><span class="legend-dot" style="background:var(--dooh)"></span>DOOH</span><span class="mix-val">${fmtBRLShort(stats.porTipo.DOOH)} · ${fmtPct(pctDOOH,0)}</span></div>
+      ${entries.map(([nome,val])=>`
+        <div class="mix-item"><span class="mix-name"><span class="legend-dot" style="background:${formatoColor(nome,nomes)}"></span>${nome}</span><span class="mix-val">${fmtBRLShort(val)} · ${fmtPct(val/total,0)}</span></div>
+      `).join('')}
     </div>
   `;
-  const catBars = document.getElementById('cat-bars');
-  const catEntries = Object.entries(stats.porCategoria).sort((a,b)=>b[1]-a[1]);
-  const maxCat = Math.max(1, ...catEntries.map(e=>e[1]));
-  if(catEntries.length===0){ catBars.innerHTML=''; return; }
-  catBars.innerHTML = '<div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-faint);margin-bottom:8px;">Por categoria de ativo</div>' +
-    catEntries.map(([nome,val])=>{
-      const cat = CATEGORIAS.find(c=>c.nome===nome);
-      const color = cat && cat.tipo==='DOOH' ? 'var(--dooh)' : 'var(--ooh)';
-      return `<div class="cat-row">
-        <span>${nome}</span>
-        <span class="cat-bar-track"><span class="cat-bar-fill" style="width:${(val/maxCat)*100}%;background:${color};"></span></span>
-        <span class="mono num" style="text-align:right;">${fmtBRLShort(val)}</span>
-      </div>`;
-    }).join('');
 }
 
 /* ============================================================
@@ -924,7 +1009,7 @@ function renderPipeline(stats){
   document.getElementById('pipeline-meta').textContent = stats.pipe.length+' proposta(s) no funil';
   if(stats.pipe.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  const stageClassMap = { 'Fechado':'stage-fechado', 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao' };
+  const stageClassMap = { 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao' };
   const rows = stats.pipe.slice().sort((a,b)=>b.valor-a.valor);
   body.innerHTML = rows.map(p=>{
     const stageClass = stageClassMap[p.estagio] || '';
@@ -939,16 +1024,11 @@ function renderPipeline(stats){
 }
 
 /* ============================================================
-   12. RENDER — DESCONTOS
+   12. RENDER — FATURAMENTO POR AGÊNCIA
    ============================================================ */
-function renderBV(stats){
-  const grid = document.getElementById('bv-grid');
-  grid.innerHTML = `
-    <div class="bv-card"><div class="k">Desconto total</div><div class="v">${fmtBRLShort(stats.desconto)}</div></div>
-    <div class="bv-card"><div class="k">% desconto médio</div><div class="v">${fmtPct(stats.pctDescontoMedio,1)}</div></div>
-  `;
+function renderAgencias(stats){
   const body = document.getElementById('agencia-body');
-  const entries = Object.entries(stats.porAgencia).sort((a,b)=>b[1].liquido-a[1].liquido).slice(0,6);
+  const entries = Object.entries(stats.porAgencia).sort((a,b)=>b[1].liquido-a[1].liquido).slice(0,8);
   if(entries.length===0){ body.innerHTML = '<tr><td colspan="2" class="empty-hint">Sem faturamento no recorte.</td></tr>'; return; }
   body.innerHTML = entries.map(([nome,v])=>`
     <tr><td>${nome}</td><td class="num">${fmtBRLShort(v.liquido)}</td></tr>
@@ -968,7 +1048,6 @@ function renderOverviewExtras(f){
   const pracaTotais = {};
   faturamento.forEach(r=>{
     if(!matchesPeriodo(r,f)) return;
-    if(f.segmento!=='todos' && r.segmento!==f.segmento) return;
     if(f.agencia!=='todas' && r.agencia!==f.agencia) return;
     pracaTotais[r.praca] = (pracaTotais[r.praca]||0) + r.valor_liquido;
   });
@@ -1049,7 +1128,7 @@ function render(){
   renderMetaChart(monthlySeries);
   renderMix(stats);
   renderPipeline(stats);
-  renderBV(stats);
+  renderAgencias(stats);
 }
 
 /* ============================================================
@@ -1125,10 +1204,9 @@ window.addEventListener('hashchange', ()=>{
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-backdrop').classList.remove('open');
 });
-document.getElementById('update-time').textContent = 'Atualizado em ' + new Date().toLocaleString('pt-BR');
-
 window.addEventListener('hashchange', render);
 populatePeriodoValor();
+loadRealData();
 /* nada é renderizado até o login — ver login()/render() */
 
 })();
