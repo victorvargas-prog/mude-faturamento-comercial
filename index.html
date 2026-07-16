@@ -180,18 +180,14 @@
   .cell-name{font-weight:600;}
   .cell-sub{font-size:10.5px;color:var(--text-faint);}
   .stage-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap;}
-  .stage-Prospecção{background:rgba(139,147,163,0.14);color:var(--text-muted);}
-  .stage-Proposta{background:var(--warning-soft);color:var(--warning);}
-  .stage-Negociação{background:rgba(92,124,250,0.14);color:var(--ooh);}
-  .stage-Fechamento{background:var(--success-soft);color:var(--success);}
-  .prob-bar{width:60px;height:5px;background:var(--bg-elevated);border-radius:3px;overflow:hidden;display:inline-block;margin-right:6px;vertical-align:middle;}
-  .prob-fill{height:100%;background:var(--accent);}
+  .stage-quente{background:var(--warning-soft);color:var(--warning);}
+  .stage-negociacao{background:rgba(92,124,250,0.14);color:var(--ooh);}
+  .stage-fechado{background:var(--success-soft);color:var(--success);}
   .rank-num{font-family:var(--font-mono);color:var(--text-faint);width:20px;display:inline-block;}
   .trophy{color:var(--success);}
 
   /* desconto/bv */
-  .bv-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
-  @media(max-width:900px){.bv-grid{grid-template-columns:repeat(2,1fr);}}
+  .bv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;}
   .bv-card{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
   .bv-card .k{font-size:10px;text-transform:uppercase;color:var(--text-faint);letter-spacing:0.05em;}
   .bv-card .v{font-family:var(--font-mono);font-size:16.5px;margin-top:5px;}
@@ -414,21 +410,21 @@
           <table>
             <thead><tr>
               <th>Anunciante</th><th>Praça</th><th>Canal</th><th>Estágio</th>
-              <th class="num">Probabilidade</th><th class="num">Valor proposto</th><th class="num">Ponderado</th>
+              <th class="num">Valor</th>
             </tr></thead>
             <tbody id="pipeline-body"></tbody>
           </table>
           </div>
-          <div class="empty-hint" id="pipeline-empty" style="display:none;">Nenhuma proposta em aberto para este recorte.</div>
+          <div class="empty-hint" id="pipeline-empty" style="display:none;">Nenhuma proposta no funil para este recorte.</div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Descontos & BV</h3></div>
+          <div class="panel-head"><h3>Descontos</h3></div>
           <div class="bv-grid" id="bv-grid"></div>
-          <div class="panel-meta" style="margin-bottom:8px;font-size:11px;color:var(--text-faint);">Top agências por comissão no período</div>
+          <div class="panel-meta" style="margin-bottom:8px;font-size:11px;color:var(--text-faint);">Top agências por faturamento no período</div>
           <div class="table-scroll">
           <table>
-            <thead><tr><th>Agência</th><th class="num">Faturamento líquido</th><th class="num">Comissão</th></tr></thead>
+            <thead><tr><th>Agência</th><th class="num">Faturamento líquido</th></tr></thead>
             <tbody id="agencia-body"></tbody>
           </table>
           </div>
@@ -559,8 +555,6 @@ EXECUTIVOS.forEach(exec=>{
       const valor_bruto = valor_liquido / (1-descontoPct);
       const valor_desconto = valor_bruto - valor_liquido;
       const agencia = pick(AGENCIAS);
-      const valor_bv = valor_liquido * randRange(0.015,0.05);
-      const valor_comissao = agencia === 'Direto' ? 0 : valor_bruto * 0.10;
       faturamento.push({
         id: idCounter++,
         exec: exec.slug,
@@ -571,35 +565,25 @@ EXECUTIVOS.forEach(exec=>{
         tipo_midia: categoria.tipo,
         categoria: categoria.nome,
         valor_bruto, valor_liquido, valor_desconto, pct_desconto: descontoPct,
-        valor_bv, valor_comissao,
       });
     }
   });
 
-  // pipeline em aberto (bissemanas futuras)
+  // pipeline de propostas (em aberto e recém-fechadas)
   const nProp = randInt(4,9);
   const sufixos = ['Nacional','Norte','Sul','Grupo A','Holdings','Express','Premium','Rede'];
-  const estagios = [
-    {nome:'Prospecção', probMin:0.10, probMax:0.25},
-    {nome:'Proposta Emitida', probMin:0.35, probMax:0.50},
-    {nome:'Negociação', probMin:0.55, probMax:0.75},
-    {nome:'Fechamento', probMin:0.80, probMax:0.95},
-  ];
+  const ESTAGIOS = ['Proposta Quente','Negociação','Fechado'];
   for(let i=0;i<nProp;i++){
-    const estagio = pick(estagios);
-    const probabilidade = randRange(estagio.probMin, estagio.probMax);
-    const valor_proposta = randRange(20000,150000);
+    const estagio = pick(ESTAGIOS);
+    const valor = randRange(20000,150000);
     pipeline.push({
       id: idCounter++,
       exec: exec.slug,
       anunciante: pick(SEGMENTOS)+' '+pick(sufixos),
       praca: pick(PRACAS).codigo,
       agencia: pick(AGENCIAS),
-      estagio: estagio.nome,
-      probabilidade,
-      valor_proposta,
-      valor_ponderado: valor_proposta*probabilidade,
-      bs_previsto: randInt(CURRENT_BS, N_BISSEMANAS),
+      estagio,
+      valor,
     });
   }
 });
@@ -791,15 +775,20 @@ function computeStats(execSlug, f){
   const bruto = fat.reduce((s,r)=>s+r.valor_bruto,0);
   const liquido = fat.reduce((s,r)=>s+r.valor_liquido,0);
   const desconto = fat.reduce((s,r)=>s+r.valor_desconto,0);
-  const bv = fat.reduce((s,r)=>s+r.valor_bv,0);
-  const comissao = fat.reduce((s,r)=>s+r.valor_comissao,0);
   const metaLiquido = met.reduce((s,r)=>s+r.meta_liquido,0);
   const metaBruto = met.reduce((s,r)=>s+r.meta_bruto,0);
   const pctMeta = metaLiquido>0 ? liquido/metaLiquido : 0;
   const ticketMedio = fat.length>0 ? liquido/fat.length : 0;
-  const pipelineTotal = pipe.reduce((s,r)=>s+r.valor_proposta,0);
-  const pipelinePonderado = pipe.reduce((s,r)=>s+r.valor_ponderado,0);
   const pctDescontoMedio = bruto>0 ? desconto/bruto : 0;
+
+  // pipeline: valor em aberto (Proposta Quente + Negociação) e valor só do que está quente
+  const pipeAbertas = pipe.filter(p=>p.estagio==='Proposta Quente' || p.estagio==='Negociação');
+  const pipeFechadas = pipe.filter(p=>p.estagio==='Fechado');
+  const pipeQuentes = pipe.filter(p=>p.estagio==='Proposta Quente');
+  const pipelineAberto = pipeAbertas.reduce((s,r)=>s+r.valor,0);
+  const pipelineQuente = pipeQuentes.reduce((s,r)=>s+r.valor,0);
+  const nPropostasFechadas = pipeFechadas.length;
+  const nPropostasAbertas = pipeAbertas.length;
 
   // mix por tipo de mídia e categoria
   const porTipo = {OOH:0, DOOH:0};
@@ -812,14 +801,14 @@ function computeStats(execSlug, f){
   // por agência
   const porAgencia = {};
   fat.forEach(r=>{
-    if(!porAgencia[r.agencia]) porAgencia[r.agencia]={liquido:0, comissao:0};
+    if(!porAgencia[r.agencia]) porAgencia[r.agencia]={liquido:0};
     porAgencia[r.agencia].liquido += r.valor_liquido;
-    porAgencia[r.agencia].comissao += r.valor_comissao;
   });
 
   return {
-    fat, met, pipe, bruto, liquido, desconto, bv, comissao, metaLiquido, metaBruto,
-    pctMeta, ticketMedio, pipelineTotal, pipelinePonderado, pctDescontoMedio,
+    fat, met, pipe, bruto, liquido, desconto, metaLiquido, metaBruto,
+    pctMeta, ticketMedio, pctDescontoMedio,
+    pipelineAberto, pipelineQuente, nPropostasFechadas, nPropostasAbertas,
     porTipo, porCategoria, porAgencia, nCampanhas: fat.length,
   };
 }
@@ -832,9 +821,8 @@ function renderKPI(stats){
   const st = statusColor(stats.pctMeta);
   grid.innerHTML = `
     <div class="kpi-card">
-      <div class="kpi-label">Faturamento bruto</div>
-      <div class="kpi-value">${fmtBRLShort(stats.bruto)}</div>
-      <div class="kpi-sub">líquido: <b>${fmtBRLShort(stats.liquido)}</b></div>
+      <div class="kpi-label">Valor faturado</div>
+      <div class="kpi-value">${fmtBRLShort(stats.liquido)}</div>
     </div>
     <div class="kpi-card ${st==='success'?'hit':''}">
       <div class="kpi-label">Meta vs. realizado <span class="kpi-pill pill-${st}">${fmtPct(stats.pctMeta,1)}</span></div>
@@ -847,9 +835,9 @@ function renderKPI(stats){
       <div class="kpi-sub"><b>${stats.nCampanhas}</b> itens faturados</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Pipeline / forecast</div>
-      <div class="kpi-value">${fmtBRLShort(stats.pipelineTotal)}</div>
-      <div class="kpi-sub">ponderado: <b>${fmtBRLShort(stats.pipelinePonderado)}</b></div>
+      <div class="kpi-label">Pipeline em aberto</div>
+      <div class="kpi-value">${fmtBRLShort(stats.pipelineAberto)}</div>
+      <div class="kpi-sub">proposta quente: <b>${fmtBRLShort(stats.pipelineQuente)}</b></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Desconto médio</div>
@@ -857,9 +845,9 @@ function renderKPI(stats){
       <div class="kpi-sub">total concedido: <b>${fmtBRLShort(stats.desconto)}</b></div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">BV + comissão agência</div>
-      <div class="kpi-value">${fmtBRLShort(stats.bv+stats.comissao)}</div>
-      <div class="kpi-sub">BV: <b>${fmtBRLShort(stats.bv)}</b> · Comissão: <b>${fmtBRLShort(stats.comissao)}</b></div>
+      <div class="kpi-label">Propostas fechadas</div>
+      <div class="kpi-value">${stats.nPropostasFechadas}</div>
+      <div class="kpi-sub">em aberto: <b>${stats.nPropostasAbertas}</b></div>
     </div>
   `;
 }
@@ -933,40 +921,37 @@ function renderMix(stats){
 function renderPipeline(stats){
   const body = document.getElementById('pipeline-body');
   const empty = document.getElementById('pipeline-empty');
-  document.getElementById('pipeline-meta').textContent = stats.pipe.length+' proposta(s) em aberto';
+  document.getElementById('pipeline-meta').textContent = stats.pipe.length+' proposta(s) no funil';
   if(stats.pipe.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  const rows = stats.pipe.slice().sort((a,b)=>b.valor_ponderado-a.valor_ponderado);
+  const stageClassMap = { 'Fechado':'stage-fechado', 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao' };
+  const rows = stats.pipe.slice().sort((a,b)=>b.valor-a.valor);
   body.innerHTML = rows.map(p=>{
-    const stageClass = 'stage-'+(p.estagio==='Proposta Emitida' ? 'Proposta' : p.estagio);
+    const stageClass = stageClassMap[p.estagio] || '';
     return `<tr>
       <td><div class="cell-name">${p.anunciante}</div><div class="cell-sub">${p.agencia}</div></td>
       <td>${pracaName(p.praca)}</td>
       <td>${p.agencia==='Direto'?'Direto':'Agência'}</td>
       <td><span class="stage-badge ${stageClass}">${p.estagio}</span></td>
-      <td class="num"><span class="prob-bar"><span class="prob-fill" style="width:${p.probabilidade*100}%;"></span></span>${fmtPct(p.probabilidade,0)}</td>
-      <td class="num">${fmtBRLShort(p.valor_proposta)}</td>
-      <td class="num">${fmtBRLShort(p.valor_ponderado)}</td>
+      <td class="num">${fmtBRLShort(p.valor)}</td>
     </tr>`;
   }).join('');
 }
 
 /* ============================================================
-   12. RENDER — DESCONTOS & BV
+   12. RENDER — DESCONTOS
    ============================================================ */
 function renderBV(stats){
   const grid = document.getElementById('bv-grid');
   grid.innerHTML = `
     <div class="bv-card"><div class="k">Desconto total</div><div class="v">${fmtBRLShort(stats.desconto)}</div></div>
     <div class="bv-card"><div class="k">% desconto médio</div><div class="v">${fmtPct(stats.pctDescontoMedio,1)}</div></div>
-    <div class="bv-card"><div class="k">BV total</div><div class="v">${fmtBRLShort(stats.bv)}</div></div>
-    <div class="bv-card"><div class="k">Comissão agência</div><div class="v">${fmtBRLShort(stats.comissao)}</div></div>
   `;
   const body = document.getElementById('agencia-body');
-  const entries = Object.entries(stats.porAgencia).sort((a,b)=>b[1].comissao-a[1].comissao).slice(0,6);
-  if(entries.length===0){ body.innerHTML = '<tr><td colspan="3" class="empty-hint">Sem faturamento no recorte.</td></tr>'; return; }
+  const entries = Object.entries(stats.porAgencia).sort((a,b)=>b[1].liquido-a[1].liquido).slice(0,6);
+  if(entries.length===0){ body.innerHTML = '<tr><td colspan="2" class="empty-hint">Sem faturamento no recorte.</td></tr>'; return; }
   body.innerHTML = entries.map(([nome,v])=>`
-    <tr><td>${nome}</td><td class="num">${fmtBRLShort(v.liquido)}</td><td class="num">${fmtBRLShort(v.comissao)}</td></tr>
+    <tr><td>${nome}</td><td class="num">${fmtBRLShort(v.liquido)}</td></tr>
   `).join('');
 }
 
