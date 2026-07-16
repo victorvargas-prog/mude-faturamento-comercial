@@ -137,7 +137,7 @@
   .legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px;}
 
   /* meta vs realizado chart */
-  .chart-scroll{overflow-x:auto;overflow-y:hidden;padding:56px 2px 6px;}
+  .chart-scroll{overflow-x:auto;padding-bottom:6px;}
   .bs-chart{display:flex;align-items:flex-end;justify-content:flex-start;gap:18px;height:196px;min-width:max-content;padding:0 2px;}
   .bs-col{width:34px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
   .bs-track{position:relative;width:26px;height:160px;background:var(--bg-elevated);border-radius:5px;overflow:visible;display:flex;align-items:flex-end;}
@@ -150,9 +150,20 @@
   .bs-col-label{font-size:11px;color:var(--text-faint);margin-top:8px;font-weight:600;}
   .bs-col:hover .bs-track{outline:1px solid var(--accent);}
   .bs-col{position:relative;}
-  .bs-tip{position:absolute;bottom:100%;left:50%;transform:translateX(-50%) translateY(-6px);background:#000;color:#fff;font-size:10px;padding:5px 7px;border-radius:6px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .1s;z-index:5;font-family:var(--font-mono);}
-  html[data-theme="light"] .bs-tip{background:#171a21;}
-  .bs-col:hover .bs-tip{opacity:1;}
+  .chart-tooltip{position:fixed;transform:translate(-50%,-100%);margin-top:-8px;background:#000;color:#fff;font-size:10px;padding:5px 7px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:500;font-family:var(--font-mono);display:none;}
+  html[data-theme="light"] .chart-tooltip{background:#171a21;}
+
+  /* comparativo anual */
+  .yoy-summary-row{display:flex;gap:32px;flex-wrap:wrap;margin-bottom:18px;}
+  .yoy-stat .kpi-label{margin-bottom:6px;}
+  .yoy-pill{font-size:13px;padding:4px 11px;}
+  .yoy-chart{display:flex;align-items:flex-end;gap:16px;height:150px;min-width:max-content;padding:0 2px;}
+  .yoy-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;cursor:default;}
+  .yoy-bars{display:flex;align-items:flex-end;gap:3px;height:120px;}
+  .yoy-bar{width:13px;border-radius:4px 4px 0 0;transition:height .25s ease;}
+  .yoy-bar.yoy-atual{background:var(--accent);}
+  .yoy-bar.yoy-anterior{background:var(--text-faint);opacity:0.55;}
+  .yoy-col:hover .yoy-bar{filter:brightness(1.15);}
 
   /* mix donut */
   .mix-wrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
@@ -396,6 +407,17 @@
         </div>
       </div>
 
+      <div class="panel" style="margin-bottom:14px;">
+        <div class="panel-head">
+          <h3>Comparativo Anual</h3>
+          <span class="panel-meta" id="yoy-meta"></span>
+        </div>
+        <div id="yoy-summary"></div>
+        <div class="chart-scroll"><div class="yoy-chart" id="yoy-chart"></div></div>
+        <div class="legend-row" id="yoy-legend" style="margin-top:10px;"></div>
+        <div class="empty-hint" id="yoy-empty" style="display:none;"></div>
+      </div>
+
       <div class="panels-row">
         <div class="panel">
           <div class="panel-head">
@@ -429,6 +451,8 @@
     </div>
   </div>
 </div>
+
+<div id="chart-tooltip" class="chart-tooltip"></div>
 
 <script>
 (function(){
@@ -969,8 +993,8 @@ function renderMetaChart(serie){
     const st = statusColor(pct);
     const hReal = Math.max(2, (s.realizado/maxVal)*160);
     const hMeta = Math.max(2, (s.meta/maxVal)*160);
-    return `<div class="bs-col">
-      <div class="bs-tip">${s.label}/${ANO_DOMINANTE}<br>Real: ${fmtBRLShort(s.realizado)}<br>Meta: ${fmtBRLShort(s.meta)}</div>
+    const tipHtml = s.label+'/'+ANO_DOMINANTE+'&lt;br&gt;Real: '+fmtBRLShort(s.realizado)+'&lt;br&gt;Meta: '+fmtBRLShort(s.meta);
+    return `<div class="bs-col" data-tip="${tipHtml}">
       <div class="bs-track">
         <div class="bs-target" style="bottom:${hMeta}px;"></div>
         <div class="bs-fill st-${st}" style="height:${hReal}px;"></div>
@@ -978,6 +1002,86 @@ function renderMetaChart(serie){
       <div class="bs-col-label">${s.label}</div>
     </div>`;
   }).join('');
+}
+
+/* ============================================================
+   9b. COMPARATIVO ANUAL (ano corrente vs. mesmo período do ano anterior)
+   ============================================================ */
+function filtraLiquidoAnoMes(execSlug, f, ano, mes){
+  return faturamento
+    .filter(r=>{
+      if(execSlug && r.exec!==execSlug) return false;
+      if(r.ano!==ano || r.mes!==mes) return false;
+      if(f.praca!=='todas' && r.praca!==f.praca) return false;
+      if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
+      return true;
+    })
+    .reduce((s,r)=>s+r.valor_liquido,0);
+}
+function computeYoY(execSlug, f){
+  const anoAtual = ANO_DOMINANTE;
+  const anoAnterior = ANO_DOMINANTE - 1;
+  const existeAnoAnterior = faturamento.some(r=>r.ano===anoAnterior);
+  const limite = getCurrentMesLimite();
+  const meses = [];
+  let totalAtual = 0, totalAnterior = 0;
+  for(let m=1; m<=limite; m++){
+    const atual = filtraLiquidoAnoMes(execSlug, f, anoAtual, m);
+    const anterior = existeAnoAnterior ? filtraLiquidoAnoMes(execSlug, f, anoAnterior, m) : 0;
+    totalAtual += atual; totalAnterior += anterior;
+    meses.push({ mes:m, label:MESES[m-1], atual, anterior });
+  }
+  const pct = (existeAnoAnterior && totalAnterior>0) ? (totalAtual-totalAnterior)/totalAnterior : null;
+  return { anoAtual, anoAnterior, existeAnoAnterior, meses, totalAtual, totalAnterior, pct };
+}
+function renderYoY(execSlug, f){
+  const yoy = computeYoY(execSlug, f);
+  const metaEl = document.getElementById('yoy-meta');
+  const summaryEl = document.getElementById('yoy-summary');
+  const chartEl = document.getElementById('yoy-chart');
+  const legendEl = document.getElementById('yoy-legend');
+  const emptyEl = document.getElementById('yoy-empty');
+
+  if(!yoy.existeAnoAnterior){
+    metaEl.textContent = '';
+    summaryEl.innerHTML = '';
+    chartEl.innerHTML = '';
+    legendEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Ainda não há dados de '+yoy.anoAnterior+' na planilha para comparar. Assim que a aba Dados tiver lançamentos desse ano, o comparativo aparece aqui automaticamente.';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  metaEl.textContent = 'Jan – '+yoy.meses[yoy.meses.length-1].label+': '+yoy.anoAtual+' vs. '+yoy.anoAnterior;
+
+  const st = yoy.pct===null ? null : (yoy.pct>=0 ? 'success' : 'danger');
+  const pctTxt = yoy.pct===null ? 'sem base de comparação' : (yoy.pct>=0?'+':'')+fmtPct(yoy.pct,1);
+  summaryEl.innerHTML = `
+    <div class="yoy-summary-row">
+      <div class="yoy-stat"><div class="kpi-label">${yoy.anoAtual}</div><div class="kpi-value">${fmtBRLShort(yoy.totalAtual)}</div></div>
+      <div class="yoy-stat"><div class="kpi-label">${yoy.anoAnterior}</div><div class="kpi-value" style="color:var(--text-muted);">${fmtBRLShort(yoy.totalAnterior)}</div></div>
+      <div class="yoy-stat"><div class="kpi-label">Variação</div><div class="kpi-value">${st ? '<span class="kpi-pill yoy-pill pill-'+st+'">'+pctTxt+'</span>' : '<span class="kpi-sub">'+pctTxt+'</span>'}</div></div>
+    </div>
+  `;
+
+  const maxVal = Math.max(1, ...yoy.meses.map(m=>Math.max(m.atual,m.anterior)));
+  chartEl.innerHTML = yoy.meses.map(m=>{
+    const hAtual = Math.max(2, (m.atual/maxVal)*120);
+    const hAnterior = Math.max(2, (m.anterior/maxVal)*120);
+    const tipHtml = m.label+'/'+yoy.anoAtual+': '+fmtBRLShort(m.atual)+'&lt;br&gt;'+m.label+'/'+yoy.anoAnterior+': '+fmtBRLShort(m.anterior);
+    return `<div class="yoy-col" data-tip="${tipHtml}">
+      <div class="yoy-bars">
+        <div class="yoy-bar yoy-atual" style="height:${hAtual}px;"></div>
+        <div class="yoy-bar yoy-anterior" style="height:${hAnterior}px;"></div>
+      </div>
+      <div class="bs-col-label">${m.label}</div>
+    </div>`;
+  }).join('');
+
+  legendEl.innerHTML = `
+    <span><span class="legend-dot" style="background:var(--accent)"></span>${yoy.anoAtual}</span>
+    <span><span class="legend-dot" style="background:var(--text-faint);opacity:.55"></span>${yoy.anoAnterior}</span>
+  `;
 }
 
 /* ============================================================
@@ -1141,6 +1245,7 @@ function render(){
   const monthlySeries = computeMonthlySeries(execSlug, f);
   renderKPI(stats);
   renderMetaChart(monthlySeries);
+  renderYoY(execSlug, f);
   renderMix(stats);
   renderPipeline(stats);
   renderAgencias(stats);
@@ -1202,6 +1307,42 @@ document.getElementById('btn-logout').addEventListener('click', function(){
 /* ============================================================
    16. TEMA + MENU MOBILE + INIT
    ============================================================ */
+// tooltip do gráfico Meta x Realizado: ancorado na viewport (position:fixed),
+// então nunca fica preso/cortado por nenhum container com scroll/overflow.
+// tooltip dos gráficos de barra (Meta x Realizado, Comparativo Anual):
+// ancorado na viewport (position:fixed), então nunca fica preso/cortado
+// por nenhum container com scroll/overflow. data-tip funciona em qualquer
+// gráfico de barras que a gente adicionar no futuro.
+function setupHoverTooltip(containerId){
+  const containerEl = document.getElementById(containerId);
+  const tipEl = document.getElementById('chart-tooltip');
+  if(!containerEl || !tipEl) return;
+  function place(el){
+    const anchor = el.querySelector('.bs-track, .yoy-bars') || el;
+    const rect = anchor.getBoundingClientRect();
+    tipEl.innerHTML = el.dataset.tip || '';
+    tipEl.style.left = (rect.left + rect.width/2) + 'px';
+    tipEl.style.top = rect.top + 'px';
+    tipEl.style.display = 'block';
+  }
+  containerEl.addEventListener('mouseover', (e)=>{
+    const el = e.target.closest('[data-tip]');
+    if(el) place(el);
+  });
+  containerEl.addEventListener('mousemove', (e)=>{
+    if(tipEl.style.display==='block'){
+      const el = e.target.closest('[data-tip]');
+      if(el) place(el);
+    }
+  });
+  containerEl.addEventListener('mouseout', (e)=>{
+    const el = e.target.closest('[data-tip]');
+    if(el && !el.contains(e.relatedTarget)) tipEl.style.display = 'none';
+  });
+}
+setupHoverTooltip('bs-chart');
+setupHoverTooltip('yoy-chart');
+
 document.getElementById('btn-theme').addEventListener('click', ()=>{
   const html = document.documentElement;
   const next = html.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
