@@ -464,7 +464,7 @@
           <div class="table-scroll">
           <table>
             <thead><tr>
-              <th>Anunciante</th><th>Praça</th><th>Canal</th><th>Estágio</th>
+              <th>Anunciante</th><th id="pipeline-th-exec" style="display:none;">Executivo</th><th>Praça</th><th>Canal</th><th>Estágio</th>
               <th class="num">Valor</th>
             </tr></thead>
             <tbody id="pipeline-body"></tbody>
@@ -1165,7 +1165,7 @@ function computeFunilCombinado(stats, sortMode){
   // Aprovadas (faturamento) contam como "Fechado" no funil; Quente e
   // Negociação continuam como "em aberto".
   const fechadas = stats.fat.map(r=>({
-    estagio:'Fechado', valor:r.valor_liquido,
+    estagio:'Fechado', valor:r.valor_liquido, exec:r.exec,
     anunciante: r.cliente || r.nomeOportunidade || '—',
     praca:r.praca, agencia:r.agencia, ano:r.ano, mes:r.mes,
   }));
@@ -1181,13 +1181,16 @@ function computeFunilCombinado(stats, sortMode){
   });
 }
 
-function renderPipeline(stats){
+function renderPipeline(stats, showExecutivo){
   const body = document.getElementById('pipeline-body');
   const empty = document.getElementById('pipeline-empty');
   const sortSel = document.getElementById('pipeline-sort');
   const rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
   const nFechadas = rows.filter(p=>p.estagio==='Fechado').length;
   const nAbertas = rows.length - nFechadas;
+
+  const thExec = document.getElementById('pipeline-th-exec');
+  if(thExec) thExec.style.display = showExecutivo ? '' : 'none';
 
   document.getElementById('pipeline-meta').textContent =
     rows.length+' proposta(s) no funil · '+nFechadas+' fechada(s) · '+nAbertas+' em aberto';
@@ -1198,8 +1201,10 @@ function renderPipeline(stats){
   const stageClassMap = { 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao', 'Fechado':'stage-fechado' };
   body.innerHTML = rows.map(p=>{
     const stageClass = stageClassMap[p.estagio] || '';
+    const execCell = showExecutivo ? `<td>${execName(p.exec)}</td>` : '';
     return `<tr>
       <td><div class="cell-name">${p.anunciante}</div><div class="cell-sub">${p.agencia}</div></td>
+      ${execCell}
       <td>${pracaName(p.praca)}</td>
       <td>${p.agencia==='Direto'?'Direto':'Agência'}</td>
       <td><span class="stage-badge ${stageClass}">${p.estagio}</span></td>
@@ -1395,7 +1400,7 @@ function render(){
   renderMetaChart(monthlySeries);
   renderYoY(execSlug, f);
   renderMix(stats);
-  renderPipeline(stats);
+  renderPipeline(stats, route.type==='overview');
   renderAgencias(stats);
 }
 
@@ -1485,9 +1490,16 @@ function exportExcel(){
   lines.push(csvLine(['Propostas em aberto (qtd)', stats.nPropostasAbertas]));
   lines.push('');
   lines.push(csvLine(['PIPELINE / FORECAST']));
-  lines.push(csvLine(['Anunciante','Praça','Canal','Estágio','Valor (R$)']));
+  const showExec = route.type==='overview';
+  const pipelineHeader = showExec
+    ? ['Anunciante','Executivo','Praça','Canal','Estágio','Valor (R$)']
+    : ['Anunciante','Praça','Canal','Estágio','Valor (R$)'];
+  lines.push(csvLine(pipelineHeader));
   funil.forEach(p=>{
-    lines.push(csvLine([p.anunciante, pracaName(p.praca), p.agencia==='Direto'?'Direto':'Agência', p.estagio, csvNum(p.valor)]));
+    const row = showExec
+      ? [p.anunciante, execName(p.exec), pracaName(p.praca), p.agencia==='Direto'?'Direto':'Agência', p.estagio, csvNum(p.valor)]
+      : [p.anunciante, pracaName(p.praca), p.agencia==='Direto'?'Direto':'Agência', p.estagio, csvNum(p.valor)];
+    lines.push(csvLine(row));
   });
   lines.push('');
   lines.push(csvLine(['FATURAMENTO POR AGÊNCIA']));
