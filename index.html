@@ -608,6 +608,7 @@ const USERS = [
   { nome:'Haydée',        senha:'Haydee2026',  role:'exec',    execSlug:'haydee' },
   { nome:'Babila',        senha:'Babila2026',  role:'exec',    execSlug:'babila' },
   { nome:'Sandro',        senha:'Sandro2026',  role:'partner', execSlug:null },
+  { nome:'Financeiro',    senha:'Financeiro2026', role:'finance', execSlug:null },
 ];
 let currentUser = null;
 
@@ -774,7 +775,7 @@ const overviewNavItem = document.querySelector('[data-route="overview"]');
 
 function buildSidebar(user){
   execNav.innerHTML = '';
-  if(user.role==='partner'){
+  if(user.role==='partner' || user.role==='finance'){
     overviewNavItem.style.display = 'flex';
     EXECUTIVOS.forEach(e=>{
       const a = document.createElement('a');
@@ -1275,6 +1276,87 @@ function renderOverviewExtras(f){
   `;
 }
 
+function renderFinanceExtras(f){
+  const container = document.getElementById('overview-extras');
+  const fat = filterFaturamento(null, f);
+  const liquidoTotal = fat.reduce((s,r)=>s+r.valor_liquido,0);
+
+  // Direto vs. Agência — relevante para cobrança: agência fatura diferente de cliente direto.
+  let diretoTotal = 0, agenciaTotal = 0;
+  fat.forEach(r=>{ if(r.agencia==='Direto') diretoTotal += r.valor_liquido; else agenciaTotal += r.valor_liquido; });
+  const pctDireto = liquidoTotal>0 ? diretoTotal/liquidoTotal : 0;
+  const pctAgencia = liquidoTotal>0 ? agenciaTotal/liquidoTotal : 0;
+
+  // Top praças
+  const pracaTotais = {};
+  fat.forEach(r=>{ pracaTotais[r.praca] = (pracaTotais[r.praca]||0) + r.valor_liquido; });
+  const topPracas = Object.entries(pracaTotais).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  const maxPraca = Math.max(1, ...topPracas.map(p=>p[1]));
+
+  // Concentração por cliente (risco de recebimento) — estilo Pareto, com % acumulado.
+  const clienteTotais = {};
+  fat.forEach(r=>{ const c = r.cliente || r.nomeOportunidade || '—'; clienteTotais[c] = (clienteTotais[c]||0) + r.valor_liquido; });
+  const topClientes = Object.entries(clienteTotais).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const top3pct = liquidoTotal>0 ? topClientes.slice(0,3).reduce((s,[,v])=>s+v,0)/liquidoTotal : 0;
+  let acumulado = 0;
+
+  if(liquidoTotal<=0){
+    container.innerHTML = '<div class="panel"><div class="empty-hint">Sem faturamento neste recorte para gerar o resumo financeiro.</div></div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-head"><h3>Faturamento: Direto vs. Agência</h3><span class="panel-meta">base para cobrança</span></div>
+        <div class="mix-wrap">
+          <div class="donut" style="background:conic-gradient(var(--accent) 0deg ${(pctAgencia*360).toFixed(2)}deg, var(--ooh) ${(pctAgencia*360).toFixed(2)}deg 360deg);">
+            <div class="donut-hole"><b>${fmtPct(pctDireto,0)}</b><span>Direto</span></div>
+          </div>
+          <div class="mix-legend">
+            <div class="mix-item"><span class="mix-name"><span class="legend-dot" style="background:var(--ooh)"></span>Direto</span><span class="mix-val">${fmtBRLShort(diretoTotal)} · ${fmtPct(pctDireto,0)}</span></div>
+            <div class="mix-item"><span class="mix-name"><span class="legend-dot" style="background:var(--accent)"></span>Agência</span><span class="mix-val">${fmtBRLShort(agenciaTotal)} · ${fmtPct(pctAgencia,0)}</span></div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:12px;">Faturamento via agência normalmente segue o fluxo de cobrança/repasse da própria agência, não do cliente final.</div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Top praças</h3><span class="panel-meta">por faturamento líquido</span></div>
+        ${topPracas.map(([codigo,val])=>`
+          <div class="toprac-row">
+            <div class="toprac-name">${codigo}</div>
+            <div class="toprac-track"><div class="toprac-fill" style="width:${(val/maxPraca)*100}%;"></div></div>
+            <div class="toprac-val">${fmtBRLShort(val)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head"><h3>Concentração por Cliente</h3><span class="panel-meta">top 10 · risco de concentração</span></div>
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;">
+        Os 3 maiores clientes respondem por <b style="color:var(--text);">${fmtPct(top3pct,0)}</b> do faturamento deste recorte.
+        ${top3pct>=0.5 ? ' Concentração alta — vale atenção redobrada em caso de atraso ou renegociação com algum desses clientes.' : ' Concentração dentro de uma faixa saudável.'}
+      </div>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Cliente</th><th class="num">Faturamento</th><th class="num">% do total</th><th class="num">% acumulado</th></tr></thead>
+        <tbody>
+          ${topClientes.map(([nome,val])=>{
+            acumulado += val;
+            const pct = val/liquidoTotal;
+            const pctAcum = acumulado/liquidoTotal;
+            return `<tr><td class="cell-name">${nome}</td><td class="num">${fmtBRLShort(val)}</td><td class="num">${fmtPct(pct,1)}</td><td class="num">${fmtPct(pctAcum,1)}</td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="section-title"><h2>Consolidado da empresa</h2><div class="line"></div></div>
+  `;
+}
+
 /* ============================================================
    14. RENDER PRINCIPAL / ROTEAMENTO
    ============================================================ */
@@ -1293,14 +1375,15 @@ function render(){
   filterNote.classList.toggle('show', anyExtraFilterActive(f));
 
   const execSlug = route.type==='exec' ? route.exec.slug : null;
-  document.getElementById('page-title').textContent = route.type==='exec' ? route.exec.nome : 'Visão Geral';
+  const isFinance = currentUser.role==='finance';
+  document.getElementById('page-title').textContent = route.type==='exec' ? route.exec.nome : (isFinance ? 'Resumo Financeiro' : 'Visão Geral');
 
   const overviewExtras = document.getElementById('overview-extras');
   const badge = document.getElementById('exec-badge');
   badge.style.display = 'none';
 
   if(route.type==='overview'){
-    renderOverviewExtras(f);
+    if(isFinance) renderFinanceExtras(f); else renderOverviewExtras(f);
     overviewExtras.style.display = 'block';
   } else {
     overviewExtras.style.display = 'none';
@@ -1338,7 +1421,7 @@ function login(user){
   appShell.classList.remove('app-hidden');
   buildSidebar(user);
   document.getElementById('user-chip-name').textContent = user.nome;
-  document.getElementById('user-chip-role').textContent = user.role==='partner' ? '' : 'executivo';
+  document.getElementById('user-chip-role').textContent = user.role==='partner' ? '' : (user.role==='finance' ? 'financeiro' : 'executivo');
   location.hash = user.role==='exec' ? '#/exec/'+user.execSlug : (location.hash || '#/overview');
   populatePeriodoValor();
   render();
