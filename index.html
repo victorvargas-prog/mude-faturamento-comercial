@@ -548,6 +548,9 @@ const EXEC_NORM = {
   'EDISON':'edison',
   'HAYDEE':'haydee', 'HAYDÉE':'haydee',
   'BABILA':'babila',
+  // Sandro entra nos totais da empresa (Overview/Financeiro), mas de propósito
+  // NÃO tem entrada em EXECUTIVOS — sem página própria, sem ranking individual.
+  'SANDRO':'sandro', 'SANDRO MORETTI':'sandro',
 };
 function normExec(v){ return v ? (EXEC_NORM[String(v).trim().toUpperCase()] || null) : null; }
 
@@ -672,8 +675,14 @@ function parseDadosTable(table){
     }
     // outras fases eventuais na planilha são ignoradas silenciosamente
   });
-  const anos = Object.keys(anoContagem);
-  if(anos.length) ANO_DOMINANTE = Number(anos.sort((a,b)=>anoContagem[b]-anoContagem[a])[0]);
+  const anos = Object.keys(anoContagem).map(Number);
+  if(anos.length){
+    // Prioriza o ano corrente real (hoje), se ele tiver algum lançamento —
+    // "ano com mais linhas" quebra assim que entram dados históricos, já
+    // que um ano passado inteiro tem naturalmente mais linhas fechadas
+    // que o ano corrente (ainda em andamento).
+    ANO_DOMINANTE = anos.includes(REAL_ANO) ? REAL_ANO : Math.max(...anos);
+  }
 }
 
 function parseMetaTable(table){
@@ -763,7 +772,7 @@ function fmtBRLShort(v){
 }
 function fmtPct(v, decimals){ return (v*100).toFixed(decimals===undefined?0:decimals)+'%'; }
 function statusColor(pct){ return pct>=1 ? 'success' : (pct>=0.8 ? 'warning' : 'danger'); }
-function execName(slug){ const e=EXECUTIVOS.find(x=>x.slug===slug); return e?e.nome:slug; }
+function execName(slug){ if(slug==='sandro') return 'Sandro'; const e=EXECUTIVOS.find(x=>x.slug===slug); return e?e.nome:slug; }
 function pracaName(codigo){ return PRACAS_ENCONTRADAS[codigo] || codigo; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 
@@ -886,6 +895,7 @@ function anyExtraFilterActive(f){
 
 function filterFaturamento(execSlug, f){
   return faturamento.filter(r=>{
+    if(r.ano!==ANO_DOMINANTE) return false;
     if(execSlug && r.exec!==execSlug) return false;
     if(!matchesPeriodo(r,f)) return false;
     if(f.praca!=='todas' && r.praca!==f.praca) return false;
@@ -895,6 +905,7 @@ function filterFaturamento(execSlug, f){
 }
 function filterMetas(execSlug, f){
   return metas.filter(r=>{
+    if(r.ano!==ANO_DOMINANTE) return false;
     if(execSlug && r.exec!==execSlug) return false;
     if(!matchesPeriodo(r,f)) return false;
     return true;
@@ -902,6 +913,7 @@ function filterMetas(execSlug, f){
 }
 function filterPipeline(execSlug, f){
   return pipeline.filter(r=>{
+    if(r.ano!==ANO_DOMINANTE) return false;
     if(execSlug && r.exec!==execSlug) return false;
     if(f.praca!=='todas' && r.praca!==f.praca) return false;
     if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
@@ -912,7 +924,9 @@ function filterPipeline(execSlug, f){
 // série mensal para o gráfico Meta x Realizado — sempre de Jan até o mês corrente,
 // independente do filtro de período; respeita praça/agência/executivo.
 function getCurrentMesLimite(){
-  const maxMesComDados = Math.max(0, ...metas.map(r=>r.mes), ...faturamento.map(r=>r.mes));
+  const maxMesComDados = Math.max(0,
+    ...metas.filter(r=>r.ano===ANO_DOMINANTE).map(r=>r.mes),
+    ...faturamento.filter(r=>r.ano===ANO_DOMINANTE).map(r=>r.mes));
   if(ANO_DOMINANTE===REAL_ANO) return Math.min(REAL_MES, maxMesComDados||REAL_MES);
   return maxMesComDados || 12;
 }
@@ -921,10 +935,11 @@ function computeMonthlySeries(execSlug, f){
   const limite = getCurrentMesLimite();
   for(let m=1; m<=limite; m++){
     const metaMes = metas
-      .filter(r=> (!execSlug || r.exec===execSlug) && r.mes===m)
+      .filter(r=> r.ano===ANO_DOMINANTE && (!execSlug || r.exec===execSlug) && r.mes===m)
       .reduce((s,r)=>s+r.meta_liquido,0);
     const realMes = faturamento
       .filter(r=>{
+        if(r.ano!==ANO_DOMINANTE) return false;
         if(execSlug && r.exec!==execSlug) return false;
         if(r.mes!==m) return false;
         if(f.praca!=='todas' && r.praca!==f.praca) return false;
@@ -1237,6 +1252,7 @@ function renderOverviewExtras(f){
 
   const pracaTotais = {};
   faturamento.forEach(r=>{
+    if(r.ano!==ANO_DOMINANTE) return;
     if(!matchesPeriodo(r,f)) return;
     if(f.agencia!=='todas' && r.agencia!==f.agencia) return;
     pracaTotais[r.praca] = (pracaTotais[r.praca]||0) + r.valor_liquido;
