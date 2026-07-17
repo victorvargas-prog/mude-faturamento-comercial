@@ -452,7 +452,10 @@
             <h3>Pipeline / Forecast</h3>
             <span class="panel-meta" id="pipeline-meta"></span>
           </div>
-          <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <select id="pipeline-exec-filter" style="display:none;background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
+              <option value="todos">Todos os executivos</option>
+            </select>
             <select id="pipeline-sort" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
               <option value="valor_desc">Ordenar: maior valor</option>
               <option value="valor_asc">Ordenar: menor valor</option>
@@ -869,6 +872,15 @@ function populatePeriodoValor(){
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
 [selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
 document.getElementById('pipeline-sort').addEventListener('change', render);
+(function populatePipelineExecFilter(){
+  const sel = document.getElementById('pipeline-exec-filter');
+  EXECUTIVOS.forEach(e=>{
+    const o = document.createElement('option');
+    o.value = e.slug; o.textContent = e.nome;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', render);
+})();
 document.getElementById('btn-reset').addEventListener('click', ()=>{
   selTipo.value='todos'; populatePeriodoValor();
   selPraca.value='todas'; selAgencia.value='todas';
@@ -1200,7 +1212,14 @@ function renderPipeline(stats, showExecutivo){
   const body = document.getElementById('pipeline-body');
   const empty = document.getElementById('pipeline-empty');
   const sortSel = document.getElementById('pipeline-sort');
-  const rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
+  const execFilterSel = document.getElementById('pipeline-exec-filter');
+
+  execFilterSel.style.display = showExecutivo ? '' : 'none';
+
+  let rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
+  if(showExecutivo && execFilterSel.value!=='todos'){
+    rows = rows.filter(p=>p.exec===execFilterSel.value);
+  }
   const nFechadas = rows.filter(p=>p.estagio==='Fechado').length;
   const nAbertas = rows.length - nFechadas;
 
@@ -1243,6 +1262,23 @@ function renderAgencias(stats){
 /* ============================================================
    13. RENDER — OVERVIEW EXTRAS (ranking + top praças)
    ============================================================ */
+function ticketMedioBlockHTML(execStatsList){
+  const ordenado = execStatsList.slice().sort((a,b)=>b.ticketMedio-a.ticketMedio);
+  const maxTicket = Math.max(1, ...ordenado.map(r=>r.ticketMedio));
+  return `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head"><h3>Ticket Médio por Executivo</h3><span class="panel-meta">valor médio por campanha fechada</span></div>
+      ${ordenado.map(r=>`
+        <div class="toprac-row">
+          <div class="toprac-name">${r.exec.nome}</div>
+          <div class="toprac-track"><div class="toprac-fill" style="width:${(r.ticketMedio/maxTicket)*100}%;"></div></div>
+          <div class="toprac-val">${fmtBRLShort(r.ticketMedio)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderOverviewExtras(f){
   const container = document.getElementById('overview-extras');
   const rankings = EXECUTIVOS.map(e=>{
@@ -1293,6 +1329,7 @@ function renderOverviewExtras(f){
         `).join('')}
       </div>
     </div>
+    ${ticketMedioBlockHTML(rankings)}
     <div class="section-title"><h2>Consolidado da empresa</h2><div class="line"></div></div>
   `;
 }
@@ -1301,6 +1338,7 @@ function renderFinanceExtras(f){
   const container = document.getElementById('overview-extras');
   const fat = filterFaturamento(null, f);
   const liquidoTotal = fat.reduce((s,r)=>s+r.valor_liquido,0);
+  const rankings = EXECUTIVOS.map(e=>({exec:e, ...computeStats(e.slug, f)}));
 
   // Direto vs. Agência — relevante para cobrança: agência fatura diferente de cliente direto.
   let diretoTotal = 0, agenciaTotal = 0;
@@ -1373,6 +1411,8 @@ function renderFinanceExtras(f){
       </table>
       </div>
     </div>
+
+    ${ticketMedioBlockHTML(rankings)}
 
     <div class="section-title"><h2>Consolidado da empresa</h2><div class="line"></div></div>
   `;
