@@ -519,11 +519,13 @@ const META_APPSCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzck3KmdKBQH
 const META_APPSCRIPT_KEY = 'Mud3C0rp'; // a mesma CHAVE_SECRETA definida no script
 const GID_META_FALLBACK = '1694804109'; // usado só se META_APPSCRIPT_URL estiver vazio
 
-function gvizUrl(gid){
-  return 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
+function gvizUrl(gid, range){
+  let url = 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
+  if(range) url += '&range='+encodeURIComponent(range);
+  return url;
 }
-async function fetchGvizTable(gid){
-  const res = await fetch(gvizUrl(gid));
+async function fetchGvizTable(gid, range){
+  const res = await fetch(gvizUrl(gid, range));
   if(!res.ok) throw new Error('HTTP '+res.status);
   const text = await res.text();
   const match = text.match(/setResponse\(([\s\S]*)\);?\s*$/);
@@ -670,6 +672,7 @@ let PRACAS_ENCONTRADAS = {};   // codigo -> nome
 let AGENCIAS_ENCONTRADAS = new Set();
 let FORMATOS_ENCONTRADOS = new Set();
 let ANO_DOMINANTE = REAL_ANO;
+let METAS_GERAIS = {};   // mes -> valor da meta GERAL (empresa toda, à parte das metas individuais)
 
 const DATA_STATE = { loading:true, error:null, loaded:false };
 
@@ -734,9 +737,15 @@ function parseMetaTable(table){
     if(!row || !row.c) return;
     const ano = cellVal(row,0);
     const mes = normMes(cellVal(row,1));
-    const exec = normExec(cellVal(row,2));
+    const execRaw = cellVal(row,2);
     const metaVal = Number(cellVal(row,3))||0;
-    if(!ano || !mes || !exec) return;
+    if(!ano || !mes) return;
+    if(execRaw && String(execRaw).trim().toUpperCase()==='GERAL'){
+      if(ano===ANO_DOMINANTE) METAS_GERAIS[mes] = metaVal;
+      return;
+    }
+    const exec = normExec(execRaw);
+    if(!exec) return;
     metas.push({ exec, ano, mes, trimestre:Math.ceil(mes/3), meta_liquido:metaVal });
   });
 }
@@ -750,12 +759,13 @@ async function loadRealData(opts){
   if(!silent){ DATA_STATE.loading = true; DATA_STATE.error = null; updateLoadingUI(); }
   try{
     const [tableDados, tableMeta] = await Promise.all([
-      fetchGvizTable(GID_DADOS),
+      fetchGvizTable(GID_DADOS, 'N:Y'),
       fetchMetaTable(),
     ]);
     // zera antes de reprocessar, senão uma sincronização em segundo plano
     // simplesmente somaria os registros novos aos antigos (duplicando tudo).
     faturamento.length = 0; metas.length = 0; pipeline.length = 0;
+    METAS_GERAIS = {};
     PRACAS_ENCONTRADAS = {}; AGENCIAS_ENCONTRADAS = new Set(); FORMATOS_ENCONTRADOS = new Set();
     parseDadosTable(tableDados);
     parseMetaTable(tableMeta);
@@ -1321,12 +1331,30 @@ function ticketMedioBlockHTML(execStatsList){
   `;
 }
 
+function getMetaGeral(f){
+  let total = 0;
+  Object.keys(METAS_GERAIS).forEach(mesStr=>{
+    const mes = Number(mesStr);
+    if(matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) total += METAS_GERAIS[mes];
+  });
+  return total;
+}
+
 function renderOverviewExtras(f){
   const container = document.getElementById('overview-extras');
   const rankings = EXECUTIVOS.map(e=>{
     const s = computeStats(e.slug, f);
     return {exec:e, ...s};
   }).sort((a,b)=>b.liquido-a.liquido);
+
+  // Meta Geral: meta única da empresa (aba Meta, linha "GERAL"), comparada
+  // contra a soma do realizado de todos os executivos no período — não é
+  // a soma das metas individuais, é uma meta de topo definida separada.
+  const realizadoTotal = rankings.reduce((s,r)=>s+r.liquido,0);
+  const metaGeral = getMetaGeral(f);
+  const temMetaGeral = Object.keys(METAS_GERAIS).length>0;
+  const pctGeral = metaGeral>0 ? realizadoTotal/metaGeral : 0;
+  const stGeral = statusColor(pctGeral);
 
   const pracaTotais = {};
   faturamento.forEach(r=>{
@@ -1339,6 +1367,16 @@ function renderOverviewExtras(f){
   const maxPraca = Math.max(1, ...topPracas.map(p=>p[1]));
 
   container.innerHTML = `
+    ${temMetaGeral ? `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">soma de todos os executivos no período</span></div>
+      <div class="yoy-summary-row">
+        <div class="yoy-stat"><div class="kpi-label">Realizado</div><div class="kpi-value">${fmtBRLShort(realizadoTotal)}</div></div>
+        <div class="yoy-stat"><div class="kpi-label">Meta Geral</div><div class="kpi-value" style="color:var(--text-muted);">${fmtBRLShort(metaGeral)}</div></div>
+        <div class="yoy-stat"><div class="kpi-label">% Atingido</div><div class="kpi-value"><span class="kpi-pill yoy-pill pill-${stGeral}">${fmtPct(pctGeral,1)}</span></div></div>
+      </div>
+    </div>
+    ` : ''}
     <div class="panels-row">
       <div class="panel">
         <div class="panel-head"><h3>Ranking dos executivos</h3><span class="panel-meta">ordenado por faturamento líquido</span></div>
