@@ -967,6 +967,7 @@ function filterPipeline(execSlug, f){
   return pipeline.filter(r=>{
     if(r.ano!==ANO_DOMINANTE) return false;
     if(execSlug && r.exec!==execSlug) return false;
+    if(!matchesPeriodo(r,f)) return false;
     if(f.praca!=='todas' && r.praca!==f.praca) return false;
     if(f.agencia!=='todas' && r.agencia!==f.agencia) return false;
     return true;
