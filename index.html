@@ -499,11 +499,22 @@
 "use strict";
 
 /* ============================================================
-   1. FONTE DE DADOS — Google Sheets (leitura pública via gviz)
+   1. FONTE DE DADOS
+   ------------------------------------------------------------
+   DADOS: continua público via gviz (leitura sem senha).
+   META: planilha PRIVADA — lida via Apps Script (só devolve os
+   números da Meta, a planilha em si nunca fica pública).
    ============================================================ */
 const SPREADSHEET_ID = '1tEHWeCwx6Ajzk507sEAY0MAIIaplFCdGko3-Uygsn0o';
 const GID_DADOS = '723799273';
-const GID_META  = '1694804109';
+
+// Preencha estas duas linhas depois de publicar o Apps Script da Meta
+// (veja apps_script_meta.gs.txt). Deixe META_APPSCRIPT_URL vazio para
+// continuar usando a planilha pública antiga (GID_META) como fallback.
+const META_APPSCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzck3KmdKBQHa25xnQhKyUrqMrvQ0cxz5bkTyQA86ts4ien6lV_wpsPTNffTeNwaGoP-A/exec';
+const META_APPSCRIPT_KEY = 'MUd3C0rp'; // a mesma CHAVE_SECRETA definida no script
+const GID_META_FALLBACK = '1694804109'; // usado só se META_APPSCRIPT_URL estiver vazio
+
 function gvizUrl(gid){
   return 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
 }
@@ -515,6 +526,31 @@ async function fetchGvizTable(gid){
   if(!match) throw new Error('Formato inesperado da resposta do Google Sheets');
   const json = JSON.parse(match[1]);
   return json.table;
+}
+function toGvizLikeTable(rowsArray){
+  // adapta [[ano,mes,executivo,meta], ...] pro mesmo formato {rows:[{c:[{v}]}]}
+  // que parseMetaTable() já espera receber do gviz — assim a lógica de
+  // parsing não precisa duplicar.
+  return { rows: rowsArray.map(r => ({ c: r.map(v => (v===null||v===undefined||v==='') ? null : {v}) })) };
+}
+async function fetchMetaViaAppsScript(){
+  const url = META_APPSCRIPT_URL + (META_APPSCRIPT_URL.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(META_APPSCRIPT_KEY);
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const json = await res.json();
+  if(json.error) throw new Error('Apps Script: '+json.error);
+  return toGvizLikeTable(json.rows);
+}
+async function fetchMetaTable(){
+  if(META_APPSCRIPT_URL){
+    try{
+      return await fetchMetaViaAppsScript();
+    } catch(err){
+      console.warn('Falha ao buscar Meta via Apps Script, usando o link público como reserva:', err);
+      return fetchGvizTable(GID_META_FALLBACK);
+    }
+  }
+  return fetchGvizTable(GID_META_FALLBACK); // fallback enquanto o Apps Script não estiver configurado
 }
 function cellVal(row, idx){
   const c = row.c && row.c[idx];
@@ -606,8 +642,8 @@ const REAL_MES = now_.getMonth()+1;
    autenticado), não apenas escondidos na tela.
    ============================================================ */
 const USERS = [
-  { nome:'Débora',        senha:'Debora 1*',  role:'exec',    execSlug:'debora' },
-  { nome:'Duane',         senha:'Dprefat2026',   role:'exec',    execSlug:'duane' },
+  { nome:'Débora',        senha:'Debora2026',  role:'exec',    execSlug:'debora' },
+  { nome:'Duane',         senha:'Duane2026',   role:'exec',    execSlug:'duane' },
   { nome:'Carol Bianchi', senha:'Carol2026',   role:'exec',    execSlug:'carol-bianchi' },
   { nome:'Fábio',         senha:'Fabio2026',   role:'exec',    execSlug:'fabio' },
   { nome:'Edison',        senha:'Edison2026',  role:'exec',    execSlug:'edison' },
@@ -710,7 +746,7 @@ async function loadRealData(opts){
   try{
     const [tableDados, tableMeta] = await Promise.all([
       fetchGvizTable(GID_DADOS),
-      fetchGvizTable(GID_META),
+      fetchMetaTable(),
     ]);
     // zera antes de reprocessar, senão uma sincronização em segundo plano
     // simplesmente somaria os registros novos aos antigos (duplicando tudo).
