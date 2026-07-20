@@ -295,6 +295,7 @@
     .bs-fill.st-success{box-shadow:none;}
     a{color:inherit;text-decoration:none;}
   }
+  @keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
 </style>
 </head>
 <body>
@@ -363,6 +364,9 @@
           <span><b id="user-chip-name"></b> <span class="role-tag" id="user-chip-role"></span></span>
           <button id="btn-logout" type="button">Sair</button>
         </div>
+        <button class="icon-btn" id="btn-refresh" aria-label="Atualizar dados" title="Buscar dados atualizados agora">
+          <svg id="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn" id="btn-export-excel" aria-label="Exportar Excel" title="Exportar para Excel (CSV)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 13l3 5M11.5 13l-3 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
@@ -1613,6 +1617,11 @@ function exportExcel(){
   URL.revokeObjectURL(url);
 }
 
+document.getElementById('btn-refresh').addEventListener('click', function(){
+  const icon = document.getElementById('refresh-icon');
+  icon.style.animation = 'spin 0.8s linear infinite';
+  loadRealData().finally(()=>{ icon.style.animation = ''; });
+});
 document.getElementById('btn-export-excel').addEventListener('click', exportExcel);
 document.getElementById('btn-export-pdf').addEventListener('click', ()=>{ window.print(); });
 
