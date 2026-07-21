@@ -178,6 +178,12 @@
   .mix-item .mix-val{font-family:var(--font-mono);color:var(--text);font-size:11.5px;}
   .cat-bars{margin-top:14px;}
   .cat-row{display:grid;grid-template-columns:118px 1fr 70px;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);margin-bottom:7px;}
+
+  /* meta geral — gauge minimalista */
+  .gauge-wrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap;}
+  .gauge-donut{width:118px;height:118px;}
+  .gauge-donut .donut-hole{width:88px;height:88px;}
+  .gauge-donut .donut-hole b{font-size:22px;}
   .cat-bar-track{height:7px;background:var(--bg-elevated);border-radius:4px;overflow:hidden;}
   .cat-bar-fill{height:100%;border-radius:4px;}
 
@@ -1366,14 +1372,21 @@ function renderOverviewExtras(f){
   const topPracas = Object.entries(pracaTotais).sort((a,b)=>b[1]-a[1]).slice(0,7);
   const maxPraca = Math.max(1, ...topPracas.map(p=>p[1]));
 
+  const arcDeg = (Math.min(pctGeral,1)*360).toFixed(2);
+  const corGauge = 'var(--'+stGeral+')';
+
   container.innerHTML = `
     ${temMetaGeral ? `
     <div class="panel" style="margin-bottom:14px;">
       <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">soma de todos os executivos no período</span></div>
-      <div class="yoy-summary-row">
-        <div class="yoy-stat"><div class="kpi-label">Realizado</div><div class="kpi-value">${fmtBRLShort(realizadoTotal)}</div></div>
-        <div class="yoy-stat"><div class="kpi-label">Meta Geral</div><div class="kpi-value" style="color:var(--text-muted);">${fmtBRLShort(metaGeral)}</div></div>
-        <div class="yoy-stat"><div class="kpi-label">% Atingido</div><div class="kpi-value"><span class="kpi-pill yoy-pill pill-${stGeral}">${fmtPct(pctGeral,1)}</span></div></div>
+      <div class="gauge-wrap">
+        <div class="donut gauge-donut" style="background:conic-gradient(${corGauge} 0deg ${arcDeg}deg, var(--bg-elevated) ${arcDeg}deg 360deg);">
+          <div class="donut-hole"><b style="color:${corGauge};">${fmtPct(pctGeral,0)}</b><span>da meta</span></div>
+        </div>
+        <div class="mix-legend">
+          <div class="mix-item"><span class="mix-name">Realizado</span><span class="mix-val">${fmtBRLShort(realizadoTotal)}</span></div>
+          <div class="mix-item"><span class="mix-name">Meta Geral</span><span class="mix-val" style="color:var(--text-muted);">${fmtBRLShort(metaGeral)}</span></div>
+        </div>
       </div>
     </div>
     ` : ''}
