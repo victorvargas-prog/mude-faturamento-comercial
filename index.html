@@ -635,6 +635,17 @@ function normAgencia(v){
   const s = v ? String(v).trim() : '';
   return s.length ? s : 'Direto';
 }
+function parseValorFlexivel(v){
+  // aceita número puro (célula formatada como moeda) OU texto tipo
+  // "R$ 50.000,00" / "R$50000" (quando alguém digita o R$ junto, o
+  // Sheets guarda como texto e Number() normal falha silenciosamente).
+  if(v===null || v===undefined || v==='') return 0;
+  if(typeof v === 'number') return v;
+  let s = String(v).trim().replace(/R\$\s?/gi,'').replace(/\s/g,'');
+  if(s.includes(',')) s = s.replace(/\./g,'').replace(',', '.'); // formato BR: 1.234,56 -> 1234.56
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
 
 const now_ = new Date();
 const REAL_ANO = now_.getFullYear();
@@ -692,7 +703,7 @@ function parseDadosTable(table){
     const cliente = (cellVal(row,3)||'').toString().trim();
     const agencia = normAgencia(cellVal(row,4));
     const broker = (cellVal(row,5)||'').toString().trim();
-    const valor = Number(cellVal(row,6))||0;
+    const valor = parseValorFlexivel(cellVal(row,6));
     const fase = (cellVal(row,7)||'').toString().trim().toUpperCase();
     const pracaInfo = normPraca(cellVal(row,8));
     const formato = (cellVal(row,9)||'').toString().trim();
@@ -744,7 +755,7 @@ function parseMetaTable(table){
     const ano = cellVal(row,0);
     const mes = normMes(cellVal(row,1));
     const execRaw = cellVal(row,2);
-    const metaVal = Number(cellVal(row,3))||0;
+    const metaVal = parseValorFlexivel(cellVal(row,3));
     if(!ano || !mes) return;
     if(execRaw && String(execRaw).trim().toUpperCase()==='GERAL'){
       if(ano===ANO_DOMINANTE) METAS_GERAIS[mes] = metaVal;
