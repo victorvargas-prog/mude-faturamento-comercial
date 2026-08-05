@@ -1406,7 +1406,7 @@ function renderOverviewExtras(f){
         <div class="panel-head"><h3>Ranking dos executivos</h3><span class="panel-meta">ordenado por faturamento líquido</span></div>
         <div class="table-scroll">
         <table>
-          <thead><tr><th></th><th>Executivo</th><th class="num">Faturado</th><th class="num">% Meta</th><th class="num">Proposta Quente</th></tr></thead>
+          <thead><tr><th></th><th>Executivo</th><th class="num">Faturado</th><th class="num">Meta</th><th class="num">% Meta</th><th class="num">Proposta Quente</th></tr></thead>
           <tbody>
             ${rankings.map((r,i)=>{
               const st = statusColor(r.pctMeta);
@@ -1414,6 +1414,7 @@ function renderOverviewExtras(f){
                 <td class="rank-num">${i===0?'<span class="trophy">🏆</span>':(i+1)}</td>
                 <td class="cell-name">${r.exec.nome}</td>
                 <td class="num">${fmtBRLShort(r.liquido)}</td>
+                <td class="num" style="color:var(--text-muted);">${fmtBRLShort(r.metaLiquido)}</td>
                 <td class="num"><span class="kpi-pill pill-${st}">${fmtPct(r.pctMeta,1)}</span></td>
                 <td class="num">${fmtBRLShort(r.pipelineQuente)}</td>
               </tr>`;
