@@ -462,6 +462,22 @@
             <h3>Pipeline / Forecast</h3>
             <span class="panel-meta" id="pipeline-meta"></span>
           </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+            <input id="pipeline-anunciante-filter" type="text" placeholder="Buscar anunciante..." style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;padding:6px 9px;border-radius:7px;flex:1;min-width:140px;">
+            <select id="pipeline-estagio-filter" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
+              <option value="todos">Todos os estágios</option>
+              <option value="Proposta Quente">Proposta Quente</option>
+              <option value="Negociação">Negociação</option>
+              <option value="Fechado">Fechado</option>
+            </select>
+            <select id="pipeline-canal-filter" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
+              <option value="todos">Todos os canais</option>
+              <option value="Direto">Direto</option>
+              <option value="Agência">Agência</option>
+            </select>
+            <input id="pipeline-valor-min" type="number" placeholder="Valor mín." style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;padding:6px 9px;border-radius:7px;width:100px;">
+            <input id="pipeline-valor-max" type="number" placeholder="Valor máx." style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;padding:6px 9px;border-radius:7px;width:100px;">
+          </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
             <select id="pipeline-exec-filter" style="display:none;background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
               <option value="todos">Todos os executivos</option>
@@ -940,6 +956,11 @@ function populatePeriodoValor(){
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
 [selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
 document.getElementById('pipeline-sort').addEventListener('change', render);
+document.getElementById('pipeline-estagio-filter').addEventListener('change', render);
+document.getElementById('pipeline-canal-filter').addEventListener('change', render);
+document.getElementById('pipeline-anunciante-filter').addEventListener('input', render);
+document.getElementById('pipeline-valor-min').addEventListener('input', render);
+document.getElementById('pipeline-valor-max').addEventListener('input', render);
 (function populatePipelineExecFilter(){
   const sel = document.getElementById('pipeline-exec-filter');
   EXECUTIVOS.forEach(e=>{
@@ -1277,6 +1298,30 @@ function computeFunilCombinado(stats, sortMode){
   });
 }
 
+function applyPipelineFilters(rows, showExecutivo){
+  const execFilterSel = document.getElementById('pipeline-exec-filter');
+  if(showExecutivo && execFilterSel.value!=='todos'){
+    rows = rows.filter(p=>p.exec===execFilterSel.value);
+  }
+  const estagioFiltro = document.getElementById('pipeline-estagio-filter').value;
+  if(estagioFiltro!=='todos') rows = rows.filter(p=>p.estagio===estagioFiltro);
+
+  const canalFiltro = document.getElementById('pipeline-canal-filter').value;
+  if(canalFiltro!=='todos'){
+    rows = rows.filter(p=>(p.agencia==='Direto' ? 'Direto' : 'Agência')===canalFiltro);
+  }
+
+  const buscaAnunciante = document.getElementById('pipeline-anunciante-filter').value.trim().toLowerCase();
+  if(buscaAnunciante) rows = rows.filter(p=>String(p.anunciante).toLowerCase().includes(buscaAnunciante));
+
+  const valorMinStr = document.getElementById('pipeline-valor-min').value;
+  const valorMaxStr = document.getElementById('pipeline-valor-max').value;
+  if(valorMinStr!==''){ const min = Number(valorMinStr); rows = rows.filter(p=>p.valor>=min); }
+  if(valorMaxStr!==''){ const max = Number(valorMaxStr); rows = rows.filter(p=>p.valor<=max); }
+
+  return rows;
+}
+
 function renderPipeline(stats, showExecutivo){
   const body = document.getElementById('pipeline-body');
   const empty = document.getElementById('pipeline-empty');
@@ -1286,9 +1331,8 @@ function renderPipeline(stats, showExecutivo){
   execFilterSel.style.display = showExecutivo ? '' : 'none';
 
   let rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
-  if(showExecutivo && execFilterSel.value!=='todos'){
-    rows = rows.filter(p=>p.exec===execFilterSel.value);
-  }
+  rows = applyPipelineFilters(rows, showExecutivo);
+
   const nFechadas = rows.filter(p=>p.estagio==='Fechado').length;
   const nAbertas = rows.length - nFechadas;
 
@@ -1633,7 +1677,7 @@ function exportExcel(){
   const f = getFilters();
   const stats = computeStats(execSlug, f);
   const sortSel = document.getElementById('pipeline-sort');
-  const funil = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
+  const funil = applyPipelineFilters(computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc'), route.type==='overview');
 
   const lines = [];
   lines.push(csvLine(['Dashboard Faturamento Comercial — Mude']));
