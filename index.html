@@ -197,9 +197,10 @@
   .cell-name{font-weight:600;}
   .cell-sub{font-size:10.5px;color:var(--text-faint);}
   .stage-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap;}
-  .stage-quente{background:var(--warning-soft);color:var(--warning);}
-  .stage-negociacao{background:rgba(92,124,250,0.14);color:var(--ooh);}
-  .stage-fechado{background:var(--success-soft);color:var(--success);}
+  .stage-frio{background:rgba(92,124,250,0.14);color:var(--ooh);}
+  .stage-morno{background:var(--warning-soft);color:var(--warning);}
+  .stage-quente{background:var(--accent-soft);color:var(--accent);}
+  .stage-aprovado{background:var(--success-soft);color:var(--success);}
   .rank-num{font-family:var(--font-mono);color:var(--text-faint);width:20px;display:inline-block;}
   .trophy{color:var(--success);}
 
@@ -466,9 +467,10 @@
             <input id="pipeline-anunciante-filter" type="text" placeholder="Buscar anunciante..." style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;padding:6px 9px;border-radius:7px;flex:1;min-width:140px;">
             <select id="pipeline-estagio-filter" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
               <option value="todos">Todos os estágios</option>
-              <option value="Proposta Quente">Proposta Quente</option>
-              <option value="Negociação">Negociação</option>
-              <option value="Fechado">Fechado</option>
+              <option value="Frio">Frio</option>
+              <option value="Morno">Morno</option>
+              <option value="Quente">Quente</option>
+              <option value="Aprovado">Aprovado</option>
             </select>
             <select id="pipeline-canal-filter" style="background:var(--card);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500;padding:6px 9px;border-radius:7px;cursor:pointer;">
               <option value="todos">Todos os canais</option>
@@ -532,7 +534,7 @@
    números da Meta, a planilha em si nunca fica pública).
    ============================================================ */
 const SPREADSHEET_ID = '1tEHWeCwx6Ajzk507sEAY0MAIIaplFCdGko3-Uygsn0o';
-const GID_DADOS = '723799273';
+const GID_DADOS = '1736734548'; // aba DADOS_LIVE — espelho independente, imune a filtro comum na aba Dados
 
 // Preencha estas duas linhas depois de publicar o Apps Script da Meta
 // (veja apps_script_meta.gs.txt). Deixe META_APPSCRIPT_URL vazio para
@@ -542,7 +544,7 @@ const META_APPSCRIPT_KEY = 'Mud3C0rp'; // a mesma CHAVE_SECRETA definida no scri
 const GID_META_FALLBACK = '1694804109'; // usado só se META_APPSCRIPT_URL estiver vazio
 
 function gvizUrl(gid, range){
-  let url = 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
+  let url = 'https://docs.google.com/spreadsheets/d/'+SPREADSHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid+'&headers=1';
   if(range) url += '&range='+encodeURIComponent(range);
   return url;
 }
@@ -610,7 +612,7 @@ const EXECUTIVOS = [
 const EXEC_NORM = {
   'DEBORA':'debora', 'DÉBORA':'debora',
   'DUANE':'duane',
-  'CAROL':'carol-bianchi', 'CAROL BIANCHI':'carol-bianchi',
+  'CAROL':'carol-bianchi', 'CAROL BIANCHI':'carol-bianchi', 'CAROL BIANCHIBIANCHI':'carol-bianchi',
   'FABIO':'fabio', 'FÁBIO':'fabio',
   'EDISON':'edison',
   'HAYDEE':'haydee', 'HAYDÉE':'haydee',
@@ -743,13 +745,19 @@ function parseDadosTable(table){
         cliente, nomeOportunidade, observacoes,
         valor_liquido:valor,
       });
-    } else if(fase==='QUENTE' || fase==='PREVISAO'){
+    } else if(fase==='FRIO' || fase==='MORNO' || fase==='QUENTE' || fase==='PREVISAO'){
+      // PREVISAO é o nome antigo (planilhas anteriores) — tratado como Morno
+      // pra não perder histórico já lançado.
+      let estagio;
+      if(fase==='FRIO') estagio = 'Frio';
+      else if(fase==='QUENTE') estagio = 'Quente';
+      else estagio = 'Morno'; // MORNO ou PREVISAO (legado)
       pipeline.push({
         id:idCounter++, exec, ano, mes, trimestre,
         praca:pracaInfo.codigo, agencia, formato, broker,
         anunciante: cliente || nomeOportunidade || '—',
         nomeOportunidade, observacoes,
-        estagio: fase==='QUENTE' ? 'Proposta Quente' : 'Negociação',
+        estagio,
         valor,
       });
     }
@@ -792,7 +800,7 @@ async function loadRealData(opts){
   if(!silent){ DATA_STATE.loading = true; DATA_STATE.error = null; updateLoadingUI(); }
   try{
     const [tableDados, tableMeta] = await Promise.all([
-      fetchGvizTable(GID_DADOS, 'N:Y'),
+      fetchGvizTable(GID_DADOS),
       fetchMetaTable(),
     ]);
     // zera antes de reprocessar, senão uma sincronização em segundo plano
@@ -804,6 +812,9 @@ async function loadRealData(opts){
     parseMetaTable(tableMeta);
     DATA_STATE.loaded = true;
     DATA_STATE.error = null;
+    if(faturamento.length===0 && pipeline.length===0){
+      DATA_STATE.error = new Error('A aba Dados respondeu, mas nenhuma linha válida foi encontrada (confira o cabeçalho da linha 1 e se ANO/MÊS/EXECUTIVO estão preenchidos).');
+    }
     const utEl = document.getElementById('update-time');
     if(utEl) utEl.textContent = 'Sincronizado em ' + new Date().toLocaleString('pt-BR');
   } catch(err){
@@ -837,7 +848,8 @@ function updateLoadingUI(){
     el.style.background = 'var(--danger-soft)';
     el.style.border = '1px solid var(--danger)';
     el.style.color = 'var(--danger)';
-    el.innerHTML = 'Não foi possível carregar a planilha. Verifique se ela continua compartilhada como "qualquer pessoa com o link pode visualizar" e '+
+    const msg = (DATA_STATE.error && DATA_STATE.error.message) || '';
+    el.innerHTML = (msg || 'Não foi possível carregar a planilha. Verifique se ela continua compartilhada como "qualquer pessoa com o link pode visualizar".')+' '+
       '<a href="#" id="btn-retry-load" style="text-decoration:underline;color:inherit;">tente novamente</a>.';
     const retry = document.getElementById('btn-retry-load');
     if(retry) retry.addEventListener('click', (e)=>{ e.preventDefault(); loadRealData(); });
@@ -1068,8 +1080,8 @@ function computeStats(execSlug, f){
   const ticketMedio = fat.length>0 ? liquido/fat.length : 0;
 
   // pipeline: todo item em "pipeline" já é, por definição, uma proposta em aberto
-  // (Proposta Quente ou Negociação) — "Fechado"/aprovado já virou faturamento.
-  const pipeQuentes = pipe.filter(p=>p.estagio==='Proposta Quente');
+  // (Frio, Morno ou Quente) — "Aprovado" já virou faturamento.
+  const pipeQuentes = pipe.filter(p=>p.estagio==='Quente');
   const pipelineAberto = pipe.reduce((s,r)=>s+r.valor,0);
   const pipelineQuente = pipeQuentes.reduce((s,r)=>s+r.valor,0);
   const nPropostasFechadas = fat.length;
@@ -1279,15 +1291,15 @@ function renderMix(stats){
    11. RENDER — PIPELINE
    ============================================================ */
 function computeFunilCombinado(stats, sortMode){
-  // Aprovadas (faturamento) contam como "Fechado" no funil; Quente e
-  // Negociação continuam como "em aberto".
+  // Aprovadas (faturamento) contam como estágio "Aprovado" no funil; Frio,
+  // Morno e Quente continuam como "em aberto".
   const fechadas = stats.fat.map(r=>({
-    estagio:'Fechado', valor:r.valor_liquido, exec:r.exec,
+    estagio:'Aprovado', valor:r.valor_liquido, exec:r.exec,
     anunciante: r.cliente || r.nomeOportunidade || '—',
     praca:r.praca, agencia:r.agencia, ano:r.ano, mes:r.mes,
   }));
   const combined = stats.pipe.concat(fechadas);
-  const stageOrder = { 'Proposta Quente':0, 'Negociação':1, 'Fechado':2 };
+  const stageOrder = { 'Frio':0, 'Morno':1, 'Quente':2, 'Aprovado':3 };
   const mode = sortMode || 'valor_desc';
   return combined.slice().sort((a,b)=>{
     if(mode==='valor_asc') return a.valor-b.valor;
@@ -1333,7 +1345,7 @@ function renderPipeline(stats, showExecutivo){
   let rows = computeFunilCombinado(stats, sortSel ? sortSel.value : 'valor_desc');
   rows = applyPipelineFilters(rows, showExecutivo);
 
-  const nFechadas = rows.filter(p=>p.estagio==='Fechado').length;
+  const nFechadas = rows.filter(p=>p.estagio==='Aprovado').length;
   const nAbertas = rows.length - nFechadas;
 
   const thExec = document.getElementById('pipeline-th-exec');
@@ -1345,7 +1357,7 @@ function renderPipeline(stats, showExecutivo){
   if(rows.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
 
-  const stageClassMap = { 'Proposta Quente':'stage-quente', 'Negociação':'stage-negociacao', 'Fechado':'stage-fechado' };
+  const stageClassMap = { 'Frio':'stage-frio', 'Morno':'stage-morno', 'Quente':'stage-quente', 'Aprovado':'stage-aprovado' };
   body.innerHTML = rows.map(p=>{
     const stageClass = stageClassMap[p.estagio] || '';
     const execCell = showExecutivo ? `<td>${execName(p.exec)}</td>` : '';
@@ -1450,7 +1462,7 @@ function renderOverviewExtras(f){
         <div class="panel-head"><h3>Ranking dos executivos</h3><span class="panel-meta">ordenado por faturamento líquido</span></div>
         <div class="table-scroll">
         <table>
-          <thead><tr><th></th><th>Executivo</th><th class="num">Faturado</th><th class="num">Meta</th><th class="num">% Meta</th><th class="num">Proposta Quente</th></tr></thead>
+          <thead><tr><th></th><th>Executivo</th><th class="num">Faturado</th><th class="num">Meta</th><th class="num">% Meta</th><th class="num">Quente</th></tr></thead>
           <tbody>
             ${rankings.map((r,i)=>{
               const st = statusColor(r.pctMeta);
