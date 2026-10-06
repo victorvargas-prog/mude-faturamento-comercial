@@ -607,8 +607,11 @@ const EXECUTIVOS = [
   {nome:'Fábio', slug:'fabio'},
   {nome:'Edison', slug:'edison'},
   {nome:'Haydée', slug:'haydee'},
-  {nome:'Babila', slug:'babila'},
+  {nome:'Janaina', slug:'janaina'},
 ];
+// Quem aparece nos totais da empresa mas NÃO tem página própria nem linha no
+// ranking (de propósito ficam fora de EXECUTIVOS): slug -> nome de exibição.
+const EXEC_SEM_PAGINA = { 'sandro':'Sandro', 'babila':'Babila' };
 const EXEC_NORM = {
   'DEBORA':'debora', 'DÉBORA':'debora',
   'DUANE':'duane',
@@ -616,9 +619,10 @@ const EXEC_NORM = {
   'FABIO':'fabio', 'FÁBIO':'fabio',
   'EDISON':'edison',
   'HAYDEE':'haydee', 'HAYDÉE':'haydee',
+  'JANAINA':'janaina', 'JANAÍNA':'janaina',
+  // Babila e Sandro entram nos totais da empresa (Overview/Financeiro), mas
+  // de propósito NÃO têm entrada em EXECUTIVOS — sem página, sem ranking individual.
   'BABILA':'babila',
-  // Sandro entra nos totais da empresa (Overview/Financeiro), mas de propósito
-  // NÃO tem entrada em EXECUTIVOS — sem página própria, sem ranking individual.
   'SANDRO':'sandro', 'SANDRO MORETTI':'sandro',
 };
 function normExec(v){ return v ? (EXEC_NORM[String(v).trim().toUpperCase()] || null) : null; }
@@ -689,7 +693,7 @@ const USERS = [
   { nome:'Fábio',         senha:'Fab692301!',   role:'exec',    execSlug:'fabio' },
   { nome:'Edison',        senha:'Mude#2026',  role:'exec',    execSlug:'edison' },
   { nome:'Haydée',        senha:'GiBe2304',  role:'exec',    execSlug:'haydee' },
-  { nome:'Babila',        senha:'Madalena1127',  role:'exec',    execSlug:'babila' },
+  { nome:'Janaina',       senha:'Janaina2026',  role:'exec',    execSlug:'janaina' },
   { nome:'Sandro',        senha:'Sandro2026',  role:'partner', execSlug:null },
   { nome:'Nidia',         senha:'Nidia2026',   role:'partner', execSlug:null },
   { nome:'Financeiro',    senha:'Financeiro2026', role:'finance', execSlug:null },
@@ -871,7 +875,7 @@ function fmtBRLShort(v){
 }
 function fmtPct(v, decimals){ return (v*100).toFixed(decimals===undefined?0:decimals)+'%'; }
 function statusColor(pct){ return pct>=1 ? 'success' : (pct>=0.8 ? 'warning' : 'danger'); }
-function execName(slug){ if(slug==='sandro') return 'Sandro'; const e=EXECUTIVOS.find(x=>x.slug===slug); return e?e.nome:slug; }
+function execName(slug){ if(EXEC_SEM_PAGINA[slug]) return EXEC_SEM_PAGINA[slug]; const e=EXECUTIVOS.find(x=>x.slug===slug); return e?e.nome:slug; }
 function pracaName(codigo){ return PRACAS_ENCONTRADAS[codigo] || codigo; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 
@@ -1421,9 +1425,10 @@ function renderOverviewExtras(f){
   }).sort((a,b)=>b.liquido-a.liquido);
 
   // Meta Geral: meta única da empresa (aba Meta, linha "GERAL"), comparada
-  // contra a soma do realizado de todos os executivos no período — não é
-  // a soma das metas individuais, é uma meta de topo definida separada.
-  const realizadoTotal = rankings.reduce((s,r)=>s+r.liquido,0);
+  // contra o realizado TOTAL da empresa no período (inclui quem não tem
+  // página própria, como Babila e Sandro) — não é a soma das metas
+  // individuais, é uma meta de topo definida separada.
+  const realizadoTotal = computeStats(null, f).liquido;
   const metaGeral = getMetaGeral(f);
   const temMetaGeral = Object.keys(METAS_GERAIS).length>0;
   const pctGeral = metaGeral>0 ? realizadoTotal/metaGeral : 0;
