@@ -719,7 +719,6 @@ let FORMATOS_ENCONTRADOS = new Set();
 let ANO_PADRAO = REAL_ANO;      // ano padrão (calculado dos dados): o ano corrente, se tiver lançamentos
 let ANO_DOMINANTE = REAL_ANO;   // ano EM FOCO agora — definido pelo filtro de período em getFilters()
 let ANOS_DISPONIVEIS = [];      // anos que existem na planilha (mais novo primeiro)
-let METAS_GERAIS = {};   // ano -> { mes -> valor } da meta GERAL (empresa toda, à parte das metas individuais)
 
 const DATA_STATE = { loading:true, error:null, loaded:false };
 
@@ -794,11 +793,9 @@ function parseMetaTable(table){
     const execRaw = cellVal(row,2);
     const metaVal = parseValorFlexivel(cellVal(row,3));
     if(!ano || !mes) return;
-    if(execRaw && String(execRaw).trim().toUpperCase()==='GERAL'){
-      if(!METAS_GERAIS[ano]) METAS_GERAIS[ano] = {};
-      METAS_GERAIS[ano][mes] = metaVal;
-      return;
-    }
+    // Linhas "GERAL" da planilha são ignoradas: a Meta Geral da empresa é a SOMA
+    // das metas de todos os executivos (somar a linha GERAL junto duplicaria).
+    if(execRaw && String(execRaw).trim().toUpperCase()==='GERAL') return;
     const exec = normExec(execRaw);
     if(!exec) return;
     metas.push({ exec, ano, mes, trimestre:Math.ceil(mes/3), meta_liquido:metaVal });
@@ -820,7 +817,6 @@ async function loadRealData(opts){
     // zera antes de reprocessar, senão uma sincronização em segundo plano
     // simplesmente somaria os registros novos aos antigos (duplicando tudo).
     faturamento.length = 0; metas.length = 0; pipeline.length = 0;
-    METAS_GERAIS = {};
     PRACAS_ENCONTRADAS = {}; AGENCIAS_ENCONTRADAS = new Set(); FORMATOS_ENCONTRADOS = new Set();
     parseDadosTable(tableDados);
     parseMetaTable(tableMeta);
@@ -1458,23 +1454,6 @@ function ticketMedioBlockHTML(execStatsList){
   `;
 }
 
-// Meses que entram na comparação Realizado x Meta Geral: só os que TÊM meta
-// geral cadastrada e que batem com o filtro de período. Em "Todo o período"/"Ano"
-// do ano corrente, vai só até o mês atual (meses futuros não contam contra a meta).
-// Assim o realizado e a meta sempre se referem exatamente aos mesmos meses.
-function mesesMetaGeral(f){
-  const doAno = METAS_GERAIS[ANO_DOMINANTE] || {};
-  const capar = (f.tipo==='todos' || f.tipo==='ano') && ANO_DOMINANTE===REAL_ANO;
-  return Object.keys(doAno).map(Number).filter(mes=>{
-    if(!matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) return false;
-    if(capar && mes>REAL_MES) return false;
-    return true;
-  }).sort((a,b)=>a-b);
-}
-function getMetaGeral(f){
-  const doAno = METAS_GERAIS[ANO_DOMINANTE] || {};
-  return mesesMetaGeral(f).reduce((s,m)=>s+doAno[m],0);
-}
 function rotuloMeses(ms){
   if(!ms.length) return '';
   const seguidos = ms.every((m,i)=>i===0 || m===ms[i-1]+1);
@@ -1488,16 +1467,14 @@ function renderOverviewExtras(f){
     return {exec:e, ...s};
   }).sort((a,b)=>b.liquido-a.liquido);
 
-  // Meta Geral: meta única da empresa (aba Meta, linha "GERAL"), comparada
-  // contra o realizado TOTAL da empresa (inclui quem não tem página própria,
-  // como Babila e Sandro) — mas só nos MESMOS meses em que existe meta geral.
-  // Não é a soma das metas individuais, é uma meta de topo definida separada.
-  const mesesGeral = mesesMetaGeral(f);
-  const realizadoTotal = filterFaturamento(null, f)
-    .filter(r=>mesesGeral.includes(r.mes))
-    .reduce((s,r)=>s+r.valor_liquido,0);
-  const metaGeral = getMetaGeral(f);
-  const temMetaGeral = Object.keys(METAS_GERAIS[ANO_DOMINANTE] || {}).length>0;
+  // Meta Geral = SOMA das metas de TODOS os executivos no período (aba Meta),
+  // comparada com o realizado da empresa toda no mesmo período (inclui quem não
+  // tem página própria, como Babila e Sandro). Em "Todo o período"/"Ano" a meta
+  // é a do ano inteiro (jan–dez) e o realizado é o acumulado até hoje.
+  const statsEmpresa = computeStats(null, f);
+  const realizadoTotal = statsEmpresa.liquido;
+  const metaGeral = statsEmpresa.metaLiquido;
+  const mesesMeta = Array.from(new Set(statsEmpresa.met.map(m=>m.mes))).sort((a,b)=>a-b);
   const pctGeral = metaGeral>0 ? realizadoTotal/metaGeral : 0;
   const stGeral = statusColor(pctGeral);
 
@@ -1515,10 +1492,9 @@ function renderOverviewExtras(f){
   const corGauge = 'var(--'+stGeral+')';
 
   container.innerHTML = `
-    ${temMetaGeral ? `
     <div class="panel" style="margin-bottom:14px;">
-      <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">${mesesGeral.length ? 'realizado da empresa × meta geral · '+rotuloMeses(mesesGeral)+'/'+ANO_DOMINANTE : ''}</span></div>
-      ${mesesGeral.length===0 ? '<div class="empty-hint">Não há meta geral cadastrada para o período selecionado.</div>' : `
+      <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">${mesesMeta.length ? 'soma das metas de todos os executivos · '+rotuloMeses(mesesMeta)+'/'+ANO_DOMINANTE : ''}</span></div>
+      ${metaGeral<=0 ? '<div class="empty-hint">Não há metas cadastradas para o período selecionado.</div>' : `
       <div class="gauge-wrap">
         <div class="donut gauge-donut" style="background:conic-gradient(${corGauge} 0deg ${arcDeg}deg, var(--bg-elevated) ${arcDeg}deg 360deg);">
           <div class="donut-hole"><b style="color:${corGauge};">${fmtPct(pctGeral,0)}</b><span>da meta</span></div>
@@ -1529,7 +1505,6 @@ function renderOverviewExtras(f){
         </div>
       </div>`}
     </div>
-    ` : ''}
     <div class="panels-row">
       <div class="panel">
         <div class="panel-head"><h3>Ranking dos executivos</h3><span class="panel-meta">ordenado por faturamento líquido</span></div>
