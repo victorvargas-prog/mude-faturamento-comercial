@@ -1458,14 +1458,27 @@ function ticketMedioBlockHTML(execStatsList){
   `;
 }
 
+// Meses que entram na comparação Realizado x Meta Geral: só os que TÊM meta
+// geral cadastrada e que batem com o filtro de período. Em "Todo o período"/"Ano"
+// do ano corrente, vai só até o mês atual (meses futuros não contam contra a meta).
+// Assim o realizado e a meta sempre se referem exatamente aos mesmos meses.
+function mesesMetaGeral(f){
+  const doAno = METAS_GERAIS[ANO_DOMINANTE] || {};
+  const capar = (f.tipo==='todos' || f.tipo==='ano') && ANO_DOMINANTE===REAL_ANO;
+  return Object.keys(doAno).map(Number).filter(mes=>{
+    if(!matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) return false;
+    if(capar && mes>REAL_MES) return false;
+    return true;
+  }).sort((a,b)=>a-b);
+}
 function getMetaGeral(f){
   const doAno = METAS_GERAIS[ANO_DOMINANTE] || {};
-  let total = 0;
-  Object.keys(doAno).forEach(mesStr=>{
-    const mes = Number(mesStr);
-    if(matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) total += doAno[mes];
-  });
-  return total;
+  return mesesMetaGeral(f).reduce((s,m)=>s+doAno[m],0);
+}
+function rotuloMeses(ms){
+  if(!ms.length) return '';
+  const seguidos = ms.every((m,i)=>i===0 || m===ms[i-1]+1);
+  return (ms.length>1 && seguidos) ? MESES[ms[0]-1]+'–'+MESES[ms[ms.length-1]-1] : ms.map(m=>MESES[m-1]).join(', ');
 }
 
 function renderOverviewExtras(f){
@@ -1476,10 +1489,13 @@ function renderOverviewExtras(f){
   }).sort((a,b)=>b.liquido-a.liquido);
 
   // Meta Geral: meta única da empresa (aba Meta, linha "GERAL"), comparada
-  // contra o realizado TOTAL da empresa no período (inclui quem não tem
-  // página própria, como Babila e Sandro) — não é a soma das metas
-  // individuais, é uma meta de topo definida separada.
-  const realizadoTotal = computeStats(null, f).liquido;
+  // contra o realizado TOTAL da empresa (inclui quem não tem página própria,
+  // como Babila e Sandro) — mas só nos MESMOS meses em que existe meta geral.
+  // Não é a soma das metas individuais, é uma meta de topo definida separada.
+  const mesesGeral = mesesMetaGeral(f);
+  const realizadoTotal = filterFaturamento(null, f)
+    .filter(r=>mesesGeral.includes(r.mes))
+    .reduce((s,r)=>s+r.valor_liquido,0);
   const metaGeral = getMetaGeral(f);
   const temMetaGeral = Object.keys(METAS_GERAIS[ANO_DOMINANTE] || {}).length>0;
   const pctGeral = metaGeral>0 ? realizadoTotal/metaGeral : 0;
@@ -1501,7 +1517,8 @@ function renderOverviewExtras(f){
   container.innerHTML = `
     ${temMetaGeral ? `
     <div class="panel" style="margin-bottom:14px;">
-      <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">soma de todos os executivos no período</span></div>
+      <div class="panel-head"><h3>Meta Geral da Empresa</h3><span class="panel-meta">${mesesGeral.length ? 'realizado da empresa × meta geral · '+rotuloMeses(mesesGeral)+'/'+ANO_DOMINANTE : ''}</span></div>
+      ${mesesGeral.length===0 ? '<div class="empty-hint">Não há meta geral cadastrada para o período selecionado.</div>' : `
       <div class="gauge-wrap">
         <div class="donut gauge-donut" style="background:conic-gradient(${corGauge} 0deg ${arcDeg}deg, var(--bg-elevated) ${arcDeg}deg 360deg);">
           <div class="donut-hole"><b style="color:${corGauge};">${fmtPct(pctGeral,0)}</b><span>da meta</span></div>
@@ -1510,7 +1527,7 @@ function renderOverviewExtras(f){
           <div class="mix-item"><span class="mix-name">Realizado</span><span class="mix-val">${fmtBRLShort(realizadoTotal)}</span></div>
           <div class="mix-item"><span class="mix-name">Meta Geral</span><span class="mix-val" style="color:var(--text-muted);">${fmtBRLShort(metaGeral)}</span></div>
         </div>
-      </div>
+      </div>`}
     </div>
     ` : ''}
     <div class="panels-row">
