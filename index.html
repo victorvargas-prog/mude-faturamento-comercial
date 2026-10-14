@@ -396,6 +396,7 @@
           <label>Tipo de período</label>
           <select id="f-periodo-tipo">
             <option value="todos">Todo o período</option>
+            <option value="ano">Ano</option>
             <option value="trimestre">Trimestre</option>
             <option value="mes">Mês</option>
           </select>
@@ -571,12 +572,17 @@ async function fetchMetaViaAppsScript(){
   if(json.error) throw new Error('Apps Script: '+json.error);
   return toGvizLikeTable(json.rows);
 }
+let META_FALLBACK_USADO = false;   // true = Apps Script falhou e a Meta veio da planilha antiga
+let META_FALLBACK_MOTIVO = '';
 async function fetchMetaTable(){
+  META_FALLBACK_USADO = false; META_FALLBACK_MOTIVO = '';
   if(META_APPSCRIPT_URL){
     try{
       return await fetchMetaViaAppsScript();
     } catch(err){
       console.warn('Falha ao buscar Meta via Apps Script, usando o link público como reserva:', err);
+      META_FALLBACK_USADO = true;
+      META_FALLBACK_MOTIVO = String((err && err.message) || err);
       return fetchGvizTable(GID_META_FALLBACK);
     }
   }
@@ -710,8 +716,10 @@ let idCounter = 1;
 let PRACAS_ENCONTRADAS = {};   // codigo -> nome
 let AGENCIAS_ENCONTRADAS = new Set();
 let FORMATOS_ENCONTRADOS = new Set();
-let ANO_DOMINANTE = REAL_ANO;
-let METAS_GERAIS = {};   // mes -> valor da meta GERAL (empresa toda, à parte das metas individuais)
+let ANO_PADRAO = REAL_ANO;      // ano padrão (calculado dos dados): o ano corrente, se tiver lançamentos
+let ANO_DOMINANTE = REAL_ANO;   // ano EM FOCO agora — definido pelo filtro de período em getFilters()
+let ANOS_DISPONIVEIS = [];      // anos que existem na planilha (mais novo primeiro)
+let METAS_GERAIS = {};   // ano -> { mes -> valor } da meta GERAL (empresa toda, à parte das metas individuais)
 
 const DATA_STATE = { loading:true, error:null, loaded:false };
 
@@ -773,7 +781,8 @@ function parseDadosTable(table){
     // "ano com mais linhas" quebra assim que entram dados históricos, já
     // que um ano passado inteiro tem naturalmente mais linhas fechadas
     // que o ano corrente (ainda em andamento).
-    ANO_DOMINANTE = anos.includes(REAL_ANO) ? REAL_ANO : Math.max(...anos);
+    ANO_PADRAO = anos.includes(REAL_ANO) ? REAL_ANO : Math.max(...anos);
+    ANO_DOMINANTE = ANO_PADRAO;
   }
 }
 
@@ -786,7 +795,8 @@ function parseMetaTable(table){
     const metaVal = parseValorFlexivel(cellVal(row,3));
     if(!ano || !mes) return;
     if(execRaw && String(execRaw).trim().toUpperCase()==='GERAL'){
-      if(ano===ANO_DOMINANTE) METAS_GERAIS[mes] = metaVal;
+      if(!METAS_GERAIS[ano]) METAS_GERAIS[ano] = {};
+      METAS_GERAIS[ano][mes] = metaVal;
       return;
     }
     const exec = normExec(execRaw);
@@ -814,6 +824,11 @@ async function loadRealData(opts){
     PRACAS_ENCONTRADAS = {}; AGENCIAS_ENCONTRADAS = new Set(); FORMATOS_ENCONTRADOS = new Set();
     parseDadosTable(tableDados);
     parseMetaTable(tableMeta);
+    const setAnos = new Set();
+    faturamento.forEach(r=>setAnos.add(r.ano));
+    pipeline.forEach(r=>setAnos.add(r.ano));
+    metas.forEach(r=>setAnos.add(r.ano));
+    ANOS_DISPONIVEIS = Array.from(setAnos).map(Number).filter(Boolean).sort((a,b)=>b-a);
     DATA_STATE.loaded = true;
     DATA_STATE.error = null;
     if(faturamento.length===0 && pipeline.length===0){
@@ -857,6 +872,14 @@ function updateLoadingUI(){
       '<a href="#" id="btn-retry-load" style="text-decoration:underline;color:inherit;">tente novamente</a>.';
     const retry = document.getElementById('btn-retry-load');
     if(retry) retry.addEventListener('click', (e)=>{ e.preventDefault(); loadRealData(); });
+  } else if(META_FALLBACK_USADO){
+    el.style.display = 'block';
+    el.style.background = 'var(--warning-soft)';
+    el.style.border = '1px solid var(--warning)';
+    el.style.color = 'var(--warning)';
+    el.textContent = 'Atenção: não consegui ler a planilha de metas (Apps Script)'+
+      (META_FALLBACK_MOTIVO ? ' — '+META_FALLBACK_MOTIVO : '')+
+      '. As metas exibidas vêm da planilha antiga e podem estar desatualizadas.';
   } else {
     el.style.display = 'none';
   }
@@ -952,10 +975,13 @@ function populateFilterOptions(){
   });
   if(pracaAtual && selPraca.querySelector('option[value="'+pracaAtual+'"]')) selPraca.value = pracaAtual;
   if(agenciaAtual && selAgencia.querySelector('option[value="'+agenciaAtual+'"]')) selAgencia.value = agenciaAtual;
+  populatePeriodoValor();   // a lista de anos só é conhecida depois da carga
 }
 
 function populatePeriodoValor(){
+  // Valores: 'ano' -> "2025"; 'trimestre' -> "2025-2"; 'mes' -> "2025-6"
   const tipo = selTipo.value;
+  const anterior = selValor.value;
   selValor.innerHTML = '';
   if(tipo==='todos'){
     selValor.disabled = true;
@@ -963,10 +989,28 @@ function populatePeriodoValor(){
     return;
   }
   selValor.disabled = false;
-  if(tipo==='trimestre'){
-    for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=q; o.textContent='T'+q+' '+ANO_DOMINANTE; selValor.appendChild(o); }
-  } else if(tipo==='mes'){
-    MESES.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i+1; o.textContent=m+' '+ANO_DOMINANTE; selValor.appendChild(o); });
+  const anos = ANOS_DISPONIVEIS.length ? ANOS_DISPONIVEIS : [ANO_PADRAO];
+  if(tipo==='ano'){
+    anos.forEach(a=>{ const o=document.createElement('option'); o.value=String(a); o.textContent=String(a); selValor.appendChild(o); });
+  } else {
+    anos.forEach(a=>{
+      const g=document.createElement('optgroup'); g.label=String(a);
+      if(tipo==='trimestre'){
+        for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=a+'-'+q; o.textContent='T'+q+' '+a; g.appendChild(o); }
+      } else {
+        MESES.forEach((m,i)=>{ const o=document.createElement('option'); o.value=a+'-'+(i+1); o.textContent=m+' '+a; g.appendChild(o); });
+      }
+      selValor.appendChild(g);
+    });
+  }
+  // mantém a escolha anterior (ex.: a sincronização de 30s não pode resetar o filtro)
+  const opcoes = Array.from(selValor.options);
+  if(anterior && opcoes.some(o=>o.value===anterior)){
+    selValor.value = anterior;
+  } else if(/^\d{4}$/.test(anterior||'') && tipo!=='ano'){
+    // veio de "Ano": abre no primeiro período do mesmo ano
+    const doAno = opcoes.find(o=>o.value.indexOf(anterior+'-')===0);
+    if(doAno) selValor.value = doAno.value;
   }
 }
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
@@ -993,12 +1037,18 @@ document.getElementById('btn-reset').addEventListener('click', ()=>{
 });
 
 function getFilters(){
-  return {
-    tipo: selTipo.value,
-    valor: selValor.value ? Number(selValor.value) : null,
-    praca: selPraca.value,
-    agencia: selAgencia.value,
-  };
+  const tipo = selTipo.value;
+  let ano = ANO_PADRAO, valor = null;
+  if(tipo==='ano'){
+    ano = Number(selValor.value) || ANO_PADRAO;
+  } else if(tipo==='trimestre' || tipo==='mes'){
+    const partes = String(selValor.value||'').split('-');
+    if(partes.length===2){ ano = Number(partes[0]) || ANO_PADRAO; valor = Number(partes[1]); }
+  }
+  // O "ano em foco" é o que todos os cálculos usam (faturamento, metas, pipeline,
+  // gráficos, comparativo anual). Todo consumidor passa por getFilters() antes.
+  ANO_DOMINANTE = ano;
+  return { tipo, ano, valor, praca: selPraca.value, agencia: selAgencia.value };
 }
 function matchesPeriodo(rec, f){
   if(f.tipo==='todos') return true;
@@ -1409,10 +1459,11 @@ function ticketMedioBlockHTML(execStatsList){
 }
 
 function getMetaGeral(f){
+  const doAno = METAS_GERAIS[ANO_DOMINANTE] || {};
   let total = 0;
-  Object.keys(METAS_GERAIS).forEach(mesStr=>{
+  Object.keys(doAno).forEach(mesStr=>{
     const mes = Number(mesStr);
-    if(matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) total += METAS_GERAIS[mes];
+    if(matchesPeriodo({mes, trimestre:Math.ceil(mes/3)}, f)) total += doAno[mes];
   });
   return total;
 }
@@ -1430,7 +1481,7 @@ function renderOverviewExtras(f){
   // individuais, é uma meta de topo definida separada.
   const realizadoTotal = computeStats(null, f).liquido;
   const metaGeral = getMetaGeral(f);
-  const temMetaGeral = Object.keys(METAS_GERAIS).length>0;
+  const temMetaGeral = Object.keys(METAS_GERAIS[ANO_DOMINANTE] || {}).length>0;
   const pctGeral = metaGeral>0 ? realizadoTotal/metaGeral : 0;
   const stGeral = statusColor(pctGeral);
 
