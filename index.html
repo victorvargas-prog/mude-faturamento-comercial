@@ -235,6 +235,11 @@
   .login-field label{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-faint);margin-bottom:6px;}
   .login-field select,.login-field input{width:100%;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:13px;font-family:var(--font-body);}
   .login-field select:focus,.login-field input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .pass-wrap{position:relative;}
+  .pass-wrap input{padding-right:44px;}
+  .pass-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:7px;color:var(--text-faint);cursor:pointer;}
+  .pass-toggle:hover{color:var(--text);}
+  .pass-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
   .login-btn{width:100%;background:var(--accent);color:#fff;border:none;padding:11px;border-radius:8px;font-weight:600;font-size:13.5px;cursor:pointer;margin-top:8px;transition:opacity .12s;}
   .login-btn:hover{opacity:0.88;}
   .login-error{font-size:12px;color:var(--danger);margin-top:12px;text-align:center;display:none;}
@@ -323,7 +328,10 @@
       </div>
       <div class="login-field">
         <label>Senha</label>
-        <input type="password" id="login-pass" autocomplete="current-password">
+        <div class="pass-wrap">
+          <input type="password" id="login-pass" autocomplete="current-password">
+          <button type="button" id="btn-toggle-pass" class="pass-toggle" aria-label="Mostrar senha" title="Mostrar senha"></button>
+        </div>
       </div>
       <button type="submit" class="login-btn">Entrar</button>
       <div class="login-error" id="login-error">Senha incorreta. Tente novamente.</div>
@@ -911,13 +919,14 @@ const execNav = document.getElementById('exec-nav');
 const overviewNavItem = document.querySelector('[data-route="overview"]');
 const navFinanceiro = document.getElementById('nav-financeiro');
 // perfis: 'exec' (só a própria página), 'partner' (visão geral + todos os executivos),
-// 'finance' (igual, com o Resumo Financeiro no lugar da visão geral) e
-// 'admin' (acesso completo: visão geral, Resumo Financeiro e todos os executivos).
-function temVisaoFinanceira(user){ return user.role==='admin' || user.role==='finance'; }
+// 'finance' (igual, com o Resumo Financeiro no lugar da visão geral),
+// 'admin' (acesso completo) — e 'partner'/'admin' também abrem o Resumo Financeiro pelo menu.
+// quem pode abrir a página "Resumo Financeiro" pelo menu (Victor, Sandro e Nidia)
+function podeVerResumoFinanceiro(user){ return !!user && (user.role==='admin' || user.role==='partner'); }
 
 function buildSidebar(user){
   execNav.innerHTML = '';
-  navFinanceiro.style.display = user.role==='admin' ? 'flex' : 'none';
+  navFinanceiro.style.display = podeVerResumoFinanceiro(user) ? 'flex' : 'none';
   if(user.role==='partner' || user.role==='finance' || user.role==='admin'){
     overviewNavItem.style.display = 'flex';
     EXECUTIVOS.forEach(e=>{
@@ -955,7 +964,7 @@ function getRoute(){
 function setActiveNav(route){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   if(route.type==='overview'){
-    const noFinanceiro = route.variante==='financeiro' && currentUser && currentUser.role==='admin';
+    const noFinanceiro = route.variante==='financeiro' && podeVerResumoFinanceiro(currentUser);
     (noFinanceiro ? navFinanceiro : overviewNavItem).classList.add('active');
   } else {
     const el = document.querySelector('[data-route="exec/'+route.exec.slug+'"]');
@@ -1672,7 +1681,7 @@ function render(){
 
   const execSlug = route.type==='exec' ? route.exec.slug : null;
   // Resumo Financeiro: sempre para o perfil 'finance'; para o 'admin' só quando abre #/financeiro
-  const isFinance = currentUser.role==='finance' || (currentUser.role==='admin' && route.variante==='financeiro');
+  const isFinance = currentUser.role==='finance' || (podeVerResumoFinanceiro(currentUser) && route.variante==='financeiro');
   document.getElementById('page-title').textContent = route.type==='exec' ? route.exec.nome : (isFinance ? 'Resumo Financeiro' : 'Visão Geral');
 
   const overviewExtras = document.getElementById('overview-extras');
@@ -1703,6 +1712,18 @@ const loginOverlay = document.getElementById('login-overlay');
 const appShell = document.getElementById('app-shell');
 const loginUserSelect = document.getElementById('login-user');
 const loginPass = document.getElementById('login-pass');
+const btnTogglePass = document.getElementById('btn-toggle-pass');
+const ICONE_OLHO = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICONE_OLHO_RISCADO = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.7 17.7 0 0 1-3.2 4.2M6.6 6.6A17.5 17.5 0 0 0 2 12s3.6 7 10 7a10.4 10.4 0 0 0 4.4-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+function definirSenhaVisivel(visivel){
+  loginPass.type = visivel ? 'text' : 'password';
+  btnTogglePass.innerHTML = visivel ? ICONE_OLHO_RISCADO : ICONE_OLHO;
+  const rotulo = visivel ? 'Ocultar senha' : 'Mostrar senha';
+  btnTogglePass.setAttribute('aria-label', rotulo);
+  btnTogglePass.title = rotulo;
+}
+definirSenhaVisivel(false);
+btnTogglePass.addEventListener('click', ()=>{ definirSenhaVisivel(loginPass.type==='password'); loginPass.focus(); });
 const loginError = document.getElementById('login-error');
 
 USERS.forEach(u=>{
@@ -1713,6 +1734,7 @@ USERS.forEach(u=>{
 });
 
 function login(user){
+  definirSenhaVisivel(false);
   currentUser = user;
   loginOverlay.classList.add('app-hidden');
   appShell.classList.remove('app-hidden');
@@ -1739,6 +1761,7 @@ document.getElementById('login-form').addEventListener('submit', function(e){
 });
 
 document.getElementById('btn-logout').addEventListener('click', function(){
+  definirSenhaVisivel(false);
   currentUser = null;
   appShell.classList.add('app-hidden');
   loginOverlay.classList.remove('app-hidden');
