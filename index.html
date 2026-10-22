@@ -401,8 +401,12 @@
             <option value="mes">Mês</option>
           </select>
         </div>
+        <div class="filter-group" id="grp-ano" style="display:none;">
+          <label>Ano</label>
+          <select id="f-ano"></select>
+        </div>
         <div class="filter-group">
-          <label>Valor do período</label>
+          <label id="lbl-periodo-valor">Valor do período</label>
           <select id="f-periodo-valor" disabled>
             <option value="">—</option>
           </select>
@@ -954,6 +958,9 @@ function setActiveNav(route){
    ============================================================ */
 const selTipo = document.getElementById('f-periodo-tipo');
 const selValor = document.getElementById('f-periodo-valor');
+const selAno = document.getElementById('f-ano');
+const grpAno = document.getElementById('grp-ano');
+const lblValor = document.getElementById('lbl-periodo-valor');
 const selPraca = document.getElementById('f-praca');
 const selAgencia = document.getElementById('f-agencia');
 const filterNote = document.getElementById('filter-note');
@@ -974,43 +981,52 @@ function populateFilterOptions(){
   populatePeriodoValor();   // a lista de anos só é conhecida depois da carga
 }
 
+const MESES_LONGOS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let tipoAnteriorPeriodo = 'todos';
 function populatePeriodoValor(){
-  // Valores: 'ano' -> "2025"; 'trimestre' -> "2025-2"; 'mes' -> "2025-6"
+  // tipo "ano"      -> [Valor] lista os anos
+  // tipo "mes"      -> [Ano] escolhe o ano  +  [Valor] lista só os meses
+  // tipo "trimestre"-> [Ano] escolhe o ano  +  [Valor] lista só T1..T4
   const tipo = selTipo.value;
-  const anterior = selValor.value;
+  const mesmoTipo = (tipo===tipoAnteriorPeriodo);   // true na sincronização de 30s: mantém a escolha
+  const anteriorValor = selValor.value;
+  const anteriorAno = selAno.value;
+  const anos = ANOS_DISPONIVEIS.length ? ANOS_DISPONIVEIS : [ANO_PADRAO];
+
   selValor.innerHTML = '';
+  grpAno.style.display = (tipo==='mes' || tipo==='trimestre') ? '' : 'none';
+  lblValor.textContent = ({ano:'Ano', trimestre:'Trimestre', mes:'Mês'})[tipo] || 'Valor do período';
+
   if(tipo==='todos'){
     selValor.disabled = true;
     const o=document.createElement('option'); o.value=''; o.textContent='—'; selValor.appendChild(o);
+    tipoAnteriorPeriodo = tipo;
     return;
   }
   selValor.disabled = false;
-  const anos = ANOS_DISPONIVEIS.length ? ANOS_DISPONIVEIS : [ANO_PADRAO];
+
   if(tipo==='ano'){
     anos.forEach(a=>{ const o=document.createElement('option'); o.value=String(a); o.textContent=String(a); selValor.appendChild(o); });
+    if(mesmoTipo && anteriorValor && Array.from(selValor.options).some(o=>o.value===anteriorValor)) selValor.value = anteriorValor;
+    else if(anos.includes(ANO_DOMINANTE)) selValor.value = String(ANO_DOMINANTE);   // veio de Mês/Trimestre: mantém o ano
   } else {
-    anos.forEach(a=>{
-      const g=document.createElement('optgroup'); g.label=String(a);
-      if(tipo==='trimestre'){
-        for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=a+'-'+q; o.textContent='T'+q+' '+a; g.appendChild(o); }
-      } else {
-        MESES.forEach((m,i)=>{ const o=document.createElement('option'); o.value=a+'-'+(i+1); o.textContent=m+' '+a; g.appendChild(o); });
-      }
-      selValor.appendChild(g);
-    });
+    // seletor de ano separado
+    selAno.innerHTML = '';
+    anos.forEach(a=>{ const o=document.createElement('option'); o.value=String(a); o.textContent=String(a); selAno.appendChild(o); });
+    if(anteriorAno && anos.map(String).includes(anteriorAno)) selAno.value = anteriorAno;
+    else if(anos.includes(ANO_DOMINANTE)) selAno.value = String(ANO_DOMINANTE);
+    // só o mês (ou trimestre), sem o ano
+    if(tipo==='trimestre'){
+      for(let q=1;q<=4;q++){ const o=document.createElement('option'); o.value=String(q); o.textContent='T'+q; selValor.appendChild(o); }
+    } else {
+      MESES_LONGOS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=String(i+1); o.textContent=m; selValor.appendChild(o); });
+    }
+    if(mesmoTipo && anteriorValor && Array.from(selValor.options).some(o=>o.value===anteriorValor)) selValor.value = anteriorValor;
   }
-  // mantém a escolha anterior (ex.: a sincronização de 30s não pode resetar o filtro)
-  const opcoes = Array.from(selValor.options);
-  if(anterior && opcoes.some(o=>o.value===anterior)){
-    selValor.value = anterior;
-  } else if(/^\d{4}$/.test(anterior||'') && tipo!=='ano'){
-    // veio de "Ano": abre no primeiro período do mesmo ano
-    const doAno = opcoes.find(o=>o.value.indexOf(anterior+'-')===0);
-    if(doAno) selValor.value = doAno.value;
-  }
+  tipoAnteriorPeriodo = tipo;
 }
 selTipo.addEventListener('change', ()=>{ populatePeriodoValor(); render(); });
-[selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
+[selAno, selValor, selPraca, selAgencia].forEach(el=>el.addEventListener('change', render));
 document.getElementById('pipeline-sort').addEventListener('change', render);
 document.getElementById('pipeline-estagio-filter').addEventListener('change', render);
 document.getElementById('pipeline-canal-filter').addEventListener('change', render);
@@ -1038,8 +1054,8 @@ function getFilters(){
   if(tipo==='ano'){
     ano = Number(selValor.value) || ANO_PADRAO;
   } else if(tipo==='trimestre' || tipo==='mes'){
-    const partes = String(selValor.value||'').split('-');
-    if(partes.length===2){ ano = Number(partes[0]) || ANO_PADRAO; valor = Number(partes[1]); }
+    ano = Number(selAno.value) || ANO_PADRAO;
+    valor = Number(selValor.value) || null;
   }
   // O "ano em foco" é o que todos os cálculos usam (faturamento, metas, pipeline,
   // gráficos, comparativo anual). Todo consumidor passa por getFilters() antes.
