@@ -229,7 +229,7 @@
   .login-card{width:100%;max-width:368px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:34px 30px;box-shadow:var(--shadow-card);}
   .login-card .brand{padding:0 0 22px 0;align-items:center;}
   .login-card .brand-logo{height:38px;}
-  .login-title{font-size:17px;color:var(--text);text-align:center;font-family:var(--font-head);}
+  .login-title{font-size:17px;color:var(--text);text-align:center;font-family:var(--font-head);margin-bottom:22px;}
   .login-sub{font-size:12px;color:var(--text-faint);text-align:center;margin:4px 0 24px;}
   .login-field{margin-bottom:14px;}
   .login-field label{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-faint);margin-bottom:6px;}
@@ -314,7 +314,6 @@
       <span class="brand-tagline">Faturamento Comercial</span>
     </div>
     <div class="login-title">Acesse seu painel</div>
-    <div class="login-sub">Cada executivo vê apenas seus próprios números. Sandro acessa a visão de todos.</div>
     <form id="login-form">
       <div class="login-field">
         <label>Quem é você?</label>
@@ -344,6 +343,9 @@
     <div class="nav-item" data-route="overview">
       <span class="nav-dot"></span> Empresa (todos)
     </div>
+    <a class="nav-item" id="nav-financeiro" data-route="financeiro" href="#/financeiro" style="display:none;">
+      <span class="nav-dot"></span> Resumo Financeiro
+    </a>
 
     <div class="nav-label">Executivos de Contas</div>
     <div id="exec-nav"></div>
@@ -706,7 +708,7 @@ const USERS = [
   { nome:'Janaina',       senha:'Janaina2026',  role:'exec',    execSlug:'janaina' },
   { nome:'Sandro',        senha:'Sandro2026',  role:'partner', execSlug:null },
   { nome:'Nidia',         senha:'Nidia2026',   role:'partner', execSlug:null },
-  { nome:'Financeiro',    senha:'Financeiro2026', role:'finance', execSlug:null },
+  { nome:'Victor',        senha:'Bot@fogo98',  role:'admin',   execSlug:null },
 ];
 let currentUser = null;
 
@@ -907,10 +909,16 @@ function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('')
    ============================================================ */
 const execNav = document.getElementById('exec-nav');
 const overviewNavItem = document.querySelector('[data-route="overview"]');
+const navFinanceiro = document.getElementById('nav-financeiro');
+// perfis: 'exec' (só a própria página), 'partner' (visão geral + todos os executivos),
+// 'finance' (igual, com o Resumo Financeiro no lugar da visão geral) e
+// 'admin' (acesso completo: visão geral, Resumo Financeiro e todos os executivos).
+function temVisaoFinanceira(user){ return user.role==='admin' || user.role==='finance'; }
 
 function buildSidebar(user){
   execNav.innerHTML = '';
-  if(user.role==='partner' || user.role==='finance'){
+  navFinanceiro.style.display = user.role==='admin' ? 'flex' : 'none';
+  if(user.role==='partner' || user.role==='finance' || user.role==='admin'){
     overviewNavItem.style.display = 'flex';
     EXECUTIVOS.forEach(e=>{
       const a = document.createElement('a');
@@ -940,13 +948,15 @@ function getRoute(){
     const exec = EXECUTIVOS.find(e=>e.slug===slug);
     if(exec) return {type:'exec', exec};
   }
+  if(h==='financeiro') return {type:'overview', variante:'financeiro'};
   return {type:'overview'};
 }
 
 function setActiveNav(route){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   if(route.type==='overview'){
-    overviewNavItem.classList.add('active');
+    const noFinanceiro = route.variante==='financeiro' && currentUser && currentUser.role==='admin';
+    (noFinanceiro ? navFinanceiro : overviewNavItem).classList.add('active');
   } else {
     const el = document.querySelector('[data-route="exec/'+route.exec.slug+'"]');
     if(el) el.classList.add('active');
@@ -1661,7 +1671,8 @@ function render(){
   filterNote.classList.toggle('show', anyExtraFilterActive(f));
 
   const execSlug = route.type==='exec' ? route.exec.slug : null;
-  const isFinance = currentUser.role==='finance';
+  // Resumo Financeiro: sempre para o perfil 'finance'; para o 'admin' só quando abre #/financeiro
+  const isFinance = currentUser.role==='finance' || (currentUser.role==='admin' && route.variante==='financeiro');
   document.getElementById('page-title').textContent = route.type==='exec' ? route.exec.nome : (isFinance ? 'Resumo Financeiro' : 'Visão Geral');
 
   const overviewExtras = document.getElementById('overview-extras');
@@ -1707,7 +1718,7 @@ function login(user){
   appShell.classList.remove('app-hidden');
   buildSidebar(user);
   document.getElementById('user-chip-name').textContent = user.nome;
-  document.getElementById('user-chip-role').textContent = user.role==='partner' ? '' : (user.role==='finance' ? 'financeiro' : 'executivo');
+  document.getElementById('user-chip-role').textContent = (user.role==='partner' || user.role==='admin') ? '' : (user.role==='finance' ? 'financeiro' : 'executivo');
   location.hash = user.role==='exec' ? '#/exec/'+user.execSlug : (location.hash || '#/overview');
   populatePeriodoValor();
   render();
