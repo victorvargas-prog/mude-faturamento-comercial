@@ -623,7 +623,6 @@ function normMes(v){ return v ? (MESES_MAP[String(v).trim().toUpperCase()] || nu
 const EXECUTIVOS = [
   {nome:'Débora', slug:'debora'},
   {nome:'Duane', slug:'duane'},
-  {nome:'Carol Bianchi', slug:'carol-bianchi'},
   {nome:'Fábio', slug:'fabio'},
   {nome:'Edison', slug:'edison'},
   {nome:'Haydée', slug:'haydee'},
@@ -631,7 +630,7 @@ const EXECUTIVOS = [
 ];
 // Quem aparece nos totais da empresa mas NÃO tem página própria nem linha no
 // ranking (de propósito ficam fora de EXECUTIVOS): slug -> nome de exibição.
-const EXEC_SEM_PAGINA = { 'sandro':'Sandro', 'babila':'Babila' };
+const EXEC_SEM_PAGINA = { 'sandro':'Sandro', 'babila':'Babila', 'carol-bianchi':'Carol Bianchi' };
 const EXEC_NORM = {
   'DEBORA':'debora', 'DÉBORA':'debora',
   'DUANE':'duane',
@@ -640,7 +639,7 @@ const EXEC_NORM = {
   'EDISON':'edison',
   'HAYDEE':'haydee', 'HAYDÉE':'haydee',
   'JANAINA':'janaina', 'JANAÍNA':'janaina',
-  // Babila e Sandro entram nos totais da empresa (Overview/Financeiro), mas
+  // Babila, Carol Bianchi e Sandro entram nos totais da empresa (Overview/Financeiro), mas
   // de propósito NÃO têm entrada em EXECUTIVOS — sem página, sem ranking individual.
   'BABILA':'babila',
   'SANDRO':'sandro', 'SANDRO MORETTI':'sandro',
@@ -709,7 +708,6 @@ const REAL_MES = now_.getMonth()+1;
 const USERS = [
   { nome:'Débora',        senha:'Debora1*',  role:'exec',    execSlug:'debora' },
   { nome:'Duane',         senha:'Dprefat2026',   role:'exec',    execSlug:'duane' },
-  { nome:'Carol Bianchi', senha:'Carol2026',   role:'exec',    execSlug:'carol-bianchi' },
   { nome:'Fábio',         senha:'Fab692301!',   role:'exec',    execSlug:'fabio' },
   { nome:'Edison',        senha:'Mude#2026',  role:'exec',    execSlug:'edison' },
   { nome:'Haydée',        senha:'GiBe2304',  role:'exec',    execSlug:'haydee' },
